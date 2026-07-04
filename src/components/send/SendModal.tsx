@@ -37,6 +37,9 @@ export function SendModal({ items, projectAddress, onClose }: SendModalProps) {
   const [contacts, setContacts] = useState<Contact[]>([]);
   const [selectedTrade, setSelectedTrade] = useState<string>('');
   const [selectedContact, setSelectedContact] = useState<Contact | null>(null);
+  const [manualMode, setManualMode] = useState(false);
+  const [manualEmail, setManualEmail] = useState('');
+  const [manualPhone, setManualPhone] = useState('');
   const [preview, setPreview] = useState('');
 
   const trades = [...new Set(items.map((i) => i.trade || 'Uncategorized'))].sort();
@@ -50,10 +53,10 @@ export function SendModal({ items, projectAddress, onClose }: SendModalProps) {
   }, [trades]);
 
   useEffect(() => {
-    if (!selectedTrade) return;
+    if (!selectedTrade || manualMode) return;
     const match = contacts.find((c) => c.trade.toLowerCase() === selectedTrade.toLowerCase());
     setSelectedContact(match || null);
-  }, [selectedTrade, contacts]);
+  }, [selectedTrade, contacts, manualMode]);
 
   useEffect(() => {
     if (!selectedTrade) return;
@@ -64,12 +67,23 @@ export function SendModal({ items, projectAddress, onClose }: SendModalProps) {
   const tradeItems = items.filter((i) => (i.trade || 'Uncategorized') === selectedTrade);
   const subject = `Punch List — ${selectedTrade} — ${projectAddress}`;
 
+  const recipientEmail = manualMode ? manualEmail.trim() : selectedContact?.email || '';
+  const recipientPhone = manualMode ? manualPhone.trim() : selectedContact?.phone || '';
+
   const handleSendEmail = () => {
-    sendEmail(selectedContact?.email || '', subject, preview);
+    if (manualMode && !recipientEmail) {
+      addToast('Enter an email address for the recipient', 'error');
+      return;
+    }
+    sendEmail(recipientEmail, subject, preview);
     addToast(`Opening email for ${selectedTrade}`, 'success');
   };
   const handleSendText = () => {
-    sendText(selectedContact?.phone || '', preview);
+    if (!recipientPhone) {
+      addToast('No phone number — pick a contact or enter one manually', 'error');
+      return;
+    }
+    sendText(recipientPhone, preview);
     addToast(`Opening text for ${selectedTrade}`, 'success');
   };
   const handleCopy = async () => {
@@ -140,7 +154,25 @@ export function SendModal({ items, projectAddress, onClose }: SendModalProps) {
             <div className="text-[10px] font-bold uppercase tracking-[0.15em] text-[var(--text-3)] mb-2">
               Send To
             </div>
-            {selectedContact ? (
+            {manualMode ? (
+              <div className="bg-[var(--card-2)] border border-[var(--border)] rounded-xl p-3 space-y-2">
+                <p className="text-xs font-bold uppercase tracking-wider text-[var(--text-2)]">Someone else</p>
+                <input
+                  type="email"
+                  value={manualEmail}
+                  onChange={(e) => setManualEmail(e.target.value)}
+                  placeholder="Email address"
+                  className="w-full px-3 py-2.5 rounded-lg border-2 border-[var(--border)] bg-[var(--card)] text-[var(--text)] placeholder:text-[var(--text-3)] focus:border-[var(--accent)] focus:outline-none transition-colors text-sm"
+                />
+                <input
+                  type="tel"
+                  value={manualPhone}
+                  onChange={(e) => setManualPhone(e.target.value)}
+                  placeholder="Phone number (for text)"
+                  className="w-full px-3 py-2.5 rounded-lg border-2 border-[var(--border)] bg-[var(--card)] text-[var(--text)] placeholder:text-[var(--text-3)] focus:border-[var(--accent)] focus:outline-none transition-colors text-sm"
+                />
+              </div>
+            ) : selectedContact ? (
               <div className="bg-[var(--card-2)] border border-[var(--border)] rounded-xl p-3 flex items-center justify-between">
                 <div>
                   <p className="text-sm font-bold text-[var(--text)]">{selectedContact.name}</p>
@@ -165,27 +197,32 @@ export function SendModal({ items, projectAddress, onClose }: SendModalProps) {
             ) : (
               <div className="bg-[var(--card-2)] border border-[var(--border)] rounded-xl p-3">
                 <p className="text-sm text-[var(--text-2)]">No contact matched for "{selectedTrade}"</p>
-                <p className="text-xs text-[var(--text-3)] mt-1">You can still send — just enter the recipient manually.</p>
+                <p className="text-xs text-[var(--text-3)] mt-1">Pick a contact below or choose "Someone else" to enter a recipient.</p>
               </div>
             )}
 
-            {contacts.length > 0 && (
-              <select
-                className="mt-2 w-full px-3 py-2.5 rounded-lg border-2 border-[var(--border)] bg-[var(--card-2)] text-[var(--text)] focus:border-[var(--accent)] focus:outline-none transition-colors text-sm"
-                value={selectedContact?.id || ''}
-                onChange={(e) => {
-                  const c = contacts.find((c) => c.id === e.target.value);
-                  setSelectedContact(c || null);
-                }}
-              >
-                <option value="">Choose a different contact…</option>
-                {contacts.map((c) => (
-                  <option key={c.id} value={c.id}>
-                    {c.name} — {c.trade || 'No trade'}
-                  </option>
-                ))}
-              </select>
-            )}
+            <select
+              className="mt-2 w-full px-3 py-2.5 rounded-lg border-2 border-[var(--border)] bg-[var(--card-2)] text-[var(--text)] focus:border-[var(--accent)] focus:outline-none transition-colors text-sm"
+              value={manualMode ? '__manual__' : selectedContact?.id || ''}
+              onChange={(e) => {
+                if (e.target.value === '__manual__') {
+                  setManualMode(true);
+                  setSelectedContact(null);
+                  return;
+                }
+                setManualMode(false);
+                const c = contacts.find((c) => c.id === e.target.value);
+                setSelectedContact(c || null);
+              }}
+            >
+              <option value="">Choose a different contact…</option>
+              {contacts.map((c) => (
+                <option key={c.id} value={c.id}>
+                  {c.name} — {c.trade || 'No trade'}
+                </option>
+              ))}
+              <option value="__manual__">Someone else (enter manually)…</option>
+            </select>
           </div>
 
           <div>
