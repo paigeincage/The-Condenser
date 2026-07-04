@@ -19,7 +19,7 @@ voiceRouter.post('/extract', async (req, res) => {
 
   try {
     const feedback = await prisma.classificationFeedback
-      .findMany({ orderBy: { createdAt: 'desc' }, take: 20 })
+      .findMany({ where: { userId: req.user!.userId }, orderBy: { createdAt: 'desc' }, take: 20 })
       .then((rows) => rows.map((f) => ({ text: f.originalText, correctedTrade: f.correctedTrade })))
       .catch(() => []);
 

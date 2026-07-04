@@ -13,9 +13,10 @@ import { classifyTextItems } from '../services/text-classify.js';
 
 export const extractRouter = Router();
 
-/** Load recent classification feedback for prompt injection */
-async function getFeedbackExamples() {
+/** Load the user's recent classification feedback for prompt injection */
+async function getFeedbackExamples(userId: string) {
   const feedback = await prisma.classificationFeedback.findMany({
+    where: { userId },
     orderBy: { createdAt: 'desc' },
     take: 20,
   });
@@ -32,8 +33,12 @@ function splitTextToItems(text: string): string[] {
 
 extractRouter.post('/:fileId', async (req, res) => {
   const { fileId } = req.params;
+  const userId = req.user!.userId;
 
-  const file = await prisma.sourceFile.findUnique({ where: { id: fileId } });
+  // Only allow extraction on files that belong to one of the user's projects
+  const file = await prisma.sourceFile.findFirst({
+    where: { id: fileId, project: { userId } },
+  });
   if (!file) {
     res.status(404).json({ error: 'File not found' });
     return;
@@ -51,7 +56,7 @@ extractRouter.post('/:fileId', async (req, res) => {
   });
 
   try {
-    const feedback = await getFeedbackExamples();
+    const feedback = await getFeedbackExamples(userId);
     let items;
 
     const mime = file.mimeType.toLowerCase();
