@@ -7,8 +7,8 @@
 import { Router } from 'express';
 import fs from 'fs';
 import { prisma } from '../lib/prisma.js';
-import { extractPdfText, pdfToImages } from '../services/pdf-to-images.js';
-import { extractWithVision, extractFromImage, extractFromText } from '../services/vision-extract.js';
+import { extractPdfText, type PdfContent } from '../services/pdf-text.js';
+import { extractFromPdf, extractFromImage, extractFromText } from '../services/vision-extract.js';
 import { classifyTextItems } from '../services/text-classify.js';
 
 export const extractRouter = Router();
@@ -57,24 +57,39 @@ extractRouter.post('/:fileId', async (req, res) => {
     const mime = file.mimeType.toLowerCase();
 
     if (mime === 'application/pdf') {
-      // ── PDF: Try text extraction first, fall back to vision ──
-      const pdfContent = await extractPdfText(file.storagePath);
-      await prisma.sourceFile.update({ where: { id: fileId }, data: { pageCount: pdfContent.pageCount } });
+      // ── PDF: Try local text extraction first (cheap, fast). If the PDF has no
+      //    usable text layer (scanned) OR local parsing/text extraction fails for
+      //    ANY reason, fall through to sending the raw PDF to Claude, which reads
+      //    both text-based and scanned PDFs natively. ──
+      let pdfContent: PdfContent | null = null;
+      try {
+        pdfContent = await extractPdfText(file.storagePath);
+        await prisma.sourceFile.update({ where: { id: fileId }, data: { pageCount: pdfContent.pageCount } });
+      } catch (err) {
+        console.warn(`[Extract] Local PDF text extraction failed, will fall back to Claude PDF:`, err);
+      }
 
-      if (pdfContent.hasRichText) {
-        // PDF has extractable text — send text to Claude (cheaper, works great for most PDFs)
+      if (pdfContent?.hasRichText) {
         console.log(`[Extract] PDF has rich text (${pdfContent.text.length} chars), using text extraction`);
-        items = await extractFromText(pdfContent.text, feedback);
-      } else {
-        // Scanned/image PDF — render to images and use Claude Vision
-        console.log(`[Extract] PDF is scanned/image-based, using vision extraction`);
-        const images = await pdfToImages(file.storagePath);
-        if (images.length > 0) {
-          items = await extractWithVision(images, feedback);
-        } else {
-          // Canvas rendering failed, try text anyway as last resort
+        try {
           items = await extractFromText(pdfContent.text, feedback);
+        } catch (err) {
+          console.warn(`[Extract] Text-based extraction failed, falling back to Claude PDF:`, err);
         }
+      }
+
+      if (!items) {
+        // Claude's PDF input limits: ~32 MB request, 100 pages.
+        const sizeBytes = fs.statSync(file.storagePath).size;
+        if (sizeBytes > 30 * 1024 * 1024) {
+          throw new Error('This PDF has no readable text layer and is over 30 MB, which is too large to scan. Try splitting it into smaller files.');
+        }
+        if (pdfContent && pdfContent.pageCount > 100) {
+          throw new Error('This PDF has no readable text layer and is over 100 pages, which is too long to scan. Try splitting it into smaller files.');
+        }
+        console.log(`[Extract] Sending PDF to Claude as a native document (scanned or unparseable)`);
+        const base64Pdf = fs.readFileSync(file.storagePath).toString('base64');
+        items = await extractFromPdf(base64Pdf, feedback);
       }
 
     } else if (mime.startsWith('image/')) {

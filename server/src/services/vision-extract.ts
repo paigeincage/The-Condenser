@@ -1,12 +1,11 @@
 // ═══════════════════════════════════════════════
-// THE CONDENSER — Claude Vision Extraction
-// Sends document pages as images to Claude.
+// THE CONDENSER — Claude Extraction
+// Sends document content (raw PDF, image, or text) to Claude.
 // Single call does BOTH extraction AND classification.
 // ═══════════════════════════════════════════════
 
 import { anthropic } from '../lib/anthropic.js';
 import { tradeListForPrompt, CLASSIFICATION_RULES } from './classify.js';
-import type { PageImage } from './pdf-to-images.js';
 
 export interface ExtractedItem {
   text: string;
@@ -50,55 +49,49 @@ Return ONLY valid JSON — no markdown fences, no explanation:
 If no deficiency items are found, return: []`;
 
 /**
- * Extract punch items from document page images using Claude Vision.
+ * Extract punch items by sending the raw PDF straight to Claude as a native
+ * document block. Claude parses both text-based and scanned/image PDFs itself,
+ * so this single path replaces the old canvas/pdfjs page-rendering fallback.
+ * Limits (enforced by the caller): ~30 MB file size, 100 pages.
  */
-export async function extractWithVision(
-  images: PageImage[],
+export async function extractFromPdf(
+  base64Pdf: string,
   feedbackExamples?: { text: string; correctedTrade: string }[]
 ): Promise<ExtractedItem[]> {
-  const content: Array<
-    | { type: 'image'; source: { type: 'base64'; media_type: 'image/png'; data: string } }
-    | { type: 'text'; text: string }
-  > = [];
-
-  // Add each page image
-  for (const img of images) {
-    content.push({
-      type: 'image',
-      source: { type: 'base64', media_type: 'image/png', data: img.base64 },
-    });
-    content.push({
-      type: 'text',
-      text: `(Page ${img.pageNumber})`,
-    });
-  }
-
-  // Add feedback examples if available (improves classification over time)
-  let userPrompt = 'Extract all deficiency items from these document pages.';
+  let userPrompt = 'Extract all deficiency / punch list items from this document.';
   if (feedbackExamples && feedbackExamples.length > 0) {
     const examples = feedbackExamples
       .slice(0, 20)
       .map((f) => `  "${f.text}" → ${f.correctedTrade}`)
       .join('\n');
-    userPrompt += `\n\nNote: The user has previously corrected these classifications. Use them as guidance:\n${examples}`;
+    userPrompt += `\n\nNote: The user has previously corrected these classifications:\n${examples}`;
   }
-
-  content.push({ type: 'text', text: userPrompt });
 
   const response = await anthropic.messages.create({
     model: 'claude-sonnet-4-20250514',
     max_tokens: 4096,
-    system: SYSTEM_PROMPT,
-    messages: [{ role: 'user', content }],
+    system: SYSTEM_PROMPT.replace(
+      'You will receive images of document pages (inspection reports, punch lists, field notes, screenshots).',
+      'You will receive a document (inspection report, punch list, field notes) as a PDF.'
+    ),
+    messages: [
+      {
+        role: 'user',
+        content: [
+          {
+            type: 'document',
+            source: { type: 'base64', media_type: 'application/pdf', data: base64Pdf },
+          },
+          { type: 'text', text: userPrompt },
+        ],
+      },
+    ],
   });
 
   const textBlock = response.content.find((b) => b.type === 'text');
   const raw = textBlock?.text?.trim() || '[]';
-  // Strip markdown fences if Claude adds them despite instructions
   const jsonStr = raw.replace(/^```json?\n?/, '').replace(/\n?```$/, '');
-  const items: ExtractedItem[] = JSON.parse(jsonStr);
-
-  return items;
+  return JSON.parse(jsonStr);
 }
 
 /**
