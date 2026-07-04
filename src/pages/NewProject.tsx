@@ -142,7 +142,7 @@ export function NewProject() {
                 type="text"
                 value={community}
                 onChange={(e) => setCommunity(e.target.value)}
-                placeholder="Patterson Ranch"
+                placeholder="Madelines Meadow"
                 className={INPUT_CLASS}
               />
             </div>

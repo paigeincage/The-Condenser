@@ -24,7 +24,7 @@ export function CommunitiesSettings() {
   const [expanded, setExpanded] = useState<string | null>(null);
 
   const addCommunity = async () => {
-    const name = prompt('Community name (e.g. Patterson Ranch)');
+    const name = prompt('Community name (e.g. Madelines Meadow)');
     if (!name) return;
     const latStr = prompt('Latitude (for weather) — e.g. 30.6327');
     const lonStr = prompt('Longitude (for weather) — e.g. -97.6779');

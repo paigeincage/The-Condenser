@@ -7,7 +7,7 @@ import { db } from '../../db';
 
 const DEFAULT_LAT = 30.6327;
 const DEFAULT_LON = -97.6779;
-const DEFAULT_COMMUNITY_NAME = 'Patterson Ranch';
+const DEFAULT_COMMUNITY_NAME = 'The Condenser';
 const AUTO_DISMISS_MS = 2000;
 const FADE_MS = 300;
 

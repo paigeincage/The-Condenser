@@ -5,7 +5,9 @@ import { randomUUID } from 'crypto';
 import fs from 'fs';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const UPLOADS_DIR = path.join(__dirname, '../../uploads');
+// On Railway, attach a volume and set UPLOADS_DIR to its mount path (e.g. /data/uploads)
+// so uploaded files survive redeploys. Falls back to a local folder otherwise.
+const UPLOADS_DIR = process.env.UPLOADS_DIR || path.join(__dirname, '../../uploads');
 
 function sanitizeDirName(name: string): string {
   return name.replace(/[<>:"/\\|?*]/g, '-').replace(/\s+/g, '_').substring(0, 100) || 'unknown';

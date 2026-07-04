@@ -92,7 +92,7 @@ export function Lots() {
         }
       />
 
-      <p className="text-xs text-g400 -mt-4 mb-4">{filtered.length} lots in {config.user.community}</p>
+      <p className="text-xs text-g400 -mt-4 mb-4">{filtered.length} lots in {config.user.community || 'your community'}</p>
 
       {/* Search + filters */}
       <input
