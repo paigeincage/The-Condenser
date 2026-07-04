@@ -1,4 +1,4 @@
-import { NavLink } from 'react-router-dom';
+import { NavLink, useLocation } from 'react-router-dom';
 import { Home, LayoutDashboard, Users, Settings } from 'lucide-react';
 
 const tabs = [
@@ -9,6 +9,8 @@ const tabs = [
 ];
 
 export function BottomNav() {
+  const { pathname } = useLocation();
+  if (pathname === '/login' || pathname === '/signup') return null;
   return (
     <nav className="fixed bottom-0 left-0 right-0 z-40 border-t-2" style={{ background: 'var(--card)', borderColor: 'var(--border)' }}>
       <div className="max-w-[680px] mx-auto flex justify-around">

@@ -1,4 +1,4 @@
-import { BrowserRouter, Routes, Route, Navigate, Outlet } from 'react-router-dom';
+import { BrowserRouter, Routes, Route, Navigate, Outlet, useLocation } from 'react-router-dom';
 import { useEffect, useState } from 'react';
 import { Toast } from './components/layout/Toast';
 import { BottomNav } from './components/layout/BottomNav';
@@ -6,6 +6,10 @@ import { SplashScreen } from './components/layout/SplashScreen';
 import { useAccessibility } from './hooks/useAccessibility';
 import { useTheme } from './hooks/useTheme';
 
+import { useAuth } from './stores/auth';
+
+import { Login } from './pages/Login';
+import { Signup } from './pages/Signup';
 import { Home } from './pages/Home';
 import { NewProject } from './pages/NewProject';
 import { Project } from './pages/Project';
@@ -23,6 +27,15 @@ import { ContactsSettings } from './pages/settings/ContactsSettings';
 import { AccessibilitySettings } from './pages/settings/AccessibilitySettings';
 
 const SPLASH_SESSION_KEY = 'condenser_splash_seen_v1';
+
+function RequireAuth() {
+  const token = useAuth((s) => s.token);
+  const location = useLocation();
+  if (!token) {
+    return <Navigate to="/login" replace state={{ from: location }} />;
+  }
+  return <Outlet />;
+}
 
 function AppShell() {
   return (
@@ -65,7 +78,10 @@ export default function App() {
       {showSplash && <SplashScreen onDismiss={() => setShowSplash(false)} />}
       <main className="pb-24">
         <Routes>
-          <Route element={<AppShell />}>
+          <Route path="/login" element={<Login />} />
+          <Route path="/signup" element={<Signup />} />
+          <Route element={<RequireAuth />}>
+            <Route element={<AppShell />}>
             <Route path="/" element={<Home />} />
             <Route path="/new" element={<NewProject />} />
             <Route path="/project/:id" element={<Project />} />
@@ -80,10 +96,11 @@ export default function App() {
             <Route path="/settings/contacts" element={<ContactsSettings />} />
             <Route path="/settings/accessibility" element={<AccessibilitySettings />} />
             <Route path="/lots" element={<Lots />} />
-            <Route path="*" element={<Navigate to="/" replace />} />
-          </Route>
-          <Route element={<AppShellWide />}>
-            <Route path="/dashboard" element={<Dashboard />} />
+              <Route path="*" element={<Navigate to="/" replace />} />
+            </Route>
+            <Route element={<AppShellWide />}>
+              <Route path="/dashboard" element={<Dashboard />} />
+            </Route>
           </Route>
         </Routes>
       </main>
