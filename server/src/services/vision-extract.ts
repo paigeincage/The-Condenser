@@ -68,7 +68,7 @@ export async function extractFromPdf(
   }
 
   const response = await anthropic.messages.create({
-    model: 'claude-sonnet-4-20250514',
+    model: 'claude-sonnet-4-6',
     max_tokens: 4096,
     system: SYSTEM_PROMPT.replace(
       'You will receive images of document pages (inspection reports, punch lists, field notes, screenshots).',
@@ -124,7 +124,7 @@ export async function extractFromImage(
   content.push({ type: 'text', text: userPrompt });
 
   const response = await anthropic.messages.create({
-    model: 'claude-sonnet-4-20250514',
+    model: 'claude-sonnet-4-6',
     max_tokens: 4096,
     system: SYSTEM_PROMPT,
     messages: [{ role: 'user', content }],
@@ -155,7 +155,7 @@ export async function extractFromText(
   }
 
   const response = await anthropic.messages.create({
-    model: 'claude-sonnet-4-20250514',
+    model: 'claude-sonnet-4-6',
     max_tokens: 4096,
     system: SYSTEM_PROMPT.replace(
       'You will receive images of document pages (inspection reports, punch lists, field notes, screenshots).',
