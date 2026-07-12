@@ -56,6 +56,8 @@ model PunchItem {
   sourceFileId String?  @map("source_file_id") @db.Uuid
   location     String   @default("")
   notes        String   @default("")
+  sendDate     String?  @map("send_date")
+  dueDate      String?  @map("due_date")
   createdAt    DateTime @default(now()) @map("created_at")
   updatedAt    DateTime @updatedAt @map("updated_at")
 

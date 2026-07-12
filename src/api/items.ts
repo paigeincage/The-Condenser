@@ -24,6 +24,22 @@ export function updateItem(id: string, data: Partial<PunchItem>) {
   });
 }
 
+export function saveTradeSteps(
+  id: string,
+  data: {
+    steps: string[];
+    assignee?: string;
+    notes?: string;
+    sendDate?: string | null;
+    dueDate?: string | null;
+  }
+) {
+  return api<{ item: PunchItem }>(`/api/items/${id}/schedule`, {
+    method: 'PATCH',
+    body: JSON.stringify(data),
+  });
+}
+
 export function deleteItem(id: string) {
   return api<{ ok: boolean }>(`/api/items/${id}`, { method: 'DELETE' });
 }

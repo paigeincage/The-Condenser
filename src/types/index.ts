@@ -26,6 +26,8 @@ export interface PunchItem {
   sourceFileId: string | null;
   location: string;
   notes: string;
+  sendDate: string | null;
+  dueDate: string | null;
   createdAt: string;
   updatedAt: string;
   tradeSteps?: TradeStep[];

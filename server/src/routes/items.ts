@@ -89,6 +89,65 @@ itemsRouter.patch('/:id', async (req, res) => {
   res.json({ item });
 });
 
+// Save trade-step scheduling for an item (steps + assignee + dates + notes).
+// Replaces the item's steps wholesale so the modal is the source of truth.
+itemsRouter.patch('/:id/schedule', async (req, res) => {
+  const userId = req.user!.userId;
+  const existing = await prisma.punchItem.findFirst({
+    where: { id: req.params.id, project: { userId } },
+  });
+  if (!existing) {
+    res.status(404).json({ error: 'Item not found' });
+    return;
+  }
+
+  const { steps, assignee, notes, sendDate, dueDate } = req.body as {
+    steps?: string[];
+    assignee?: string;
+    notes?: string;
+    sendDate?: string | null;
+    dueDate?: string | null;
+  };
+
+  const cleanSteps = Array.isArray(steps)
+    ? steps.map((s) => (s || '').trim()).filter(Boolean)
+    : null;
+
+  const item = await prisma.$transaction(async (tx) => {
+    await tx.punchItem.update({
+      where: { id: existing.id },
+      data: {
+        ...(assignee !== undefined && { assignee }),
+        ...(notes !== undefined && { notes }),
+        ...(sendDate !== undefined && { sendDate }),
+        ...(dueDate !== undefined && { dueDate }),
+      },
+    });
+
+    if (cleanSteps !== null) {
+      await tx.tradeStep.deleteMany({ where: { punchItemId: existing.id } });
+      if (cleanSteps.length) {
+        await tx.tradeStep.createMany({
+          data: cleanSteps.map((note, i) => ({
+            punchItemId: existing.id,
+            trade: existing.trade,
+            sequence: i,
+            note,
+            dueDate: dueDate ?? null,
+          })),
+        });
+      }
+    }
+
+    return tx.punchItem.findUnique({
+      where: { id: existing.id },
+      include: { tradeSteps: { orderBy: { sequence: 'asc' } } },
+    });
+  });
+
+  res.json({ item });
+});
+
 // Delete item (must belong to one of the user's projects)
 itemsRouter.delete('/:id', async (req, res) => {
   const userId = req.user!.userId;

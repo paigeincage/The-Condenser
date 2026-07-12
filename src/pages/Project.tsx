@@ -1,11 +1,12 @@
 import { useEffect, useState, useRef } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import {
-  ChevronDown, Send, Plus, X, AlertCircle, FileText, Check, Mic, Camera,
+  ChevronDown, ChevronUp, Send, Plus, X, AlertCircle, FileText, Check, Mic, Camera,
   Loader2, Search, MapPin, Zap, Pencil, Copy, Trash2, SlidersHorizontal, Settings, ListPlus,
 } from 'lucide-react';
 import { getProject } from '../api/projects';
-import { updateItem, deleteItem, createItemsBulk } from '../api/items';
+import { updateItem, deleteItem, createItemsBulk, saveTradeSteps } from '../api/items';
+import { listContacts } from '../api/contacts';
 import { uploadFiles, extractFile } from '../api/files';
 import { TopBar } from '../components/layout/TopBar';
 import { ThemeToggle } from '../components/layout/ThemeToggle';
@@ -13,7 +14,7 @@ import { SendModal } from '../components/send/SendModal';
 import { PhotoAttachments } from '../components/items/PhotoAttachments';
 import { VoiceCapture } from '../components/voice/VoiceCapture';
 import { useUI } from '../stores/ui';
-import type { Project as ProjectType, PunchItem } from '../types';
+import type { Project as ProjectType, PunchItem, Contact } from '../types';
 
 const TRADES = [
   'Painting & Touch-Up', 'Trim / Baseboard / Caulk', 'Stairs / Flooring', 'Plumbing',
@@ -52,6 +53,7 @@ export function Project() {
   const [collapsed, setCollapsed] = useState<Record<string, boolean>>({});
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [editingItem, setEditingItem] = useState<PunchItem | null>(null);
+  const [stepsItem, setStepsItem] = useState<PunchItem | null>(null);
   const [showSend, setShowSend] = useState(false);
   const [sendItems, setSendItems] = useState<PunchItem[] | null>(null);
   const [showVoice, setShowVoice] = useState(false);
@@ -548,7 +550,7 @@ export function Project() {
                         onSend={() => openSend([item])}
                         onEdit={() => setEditingItem({ ...item })}
                         onDelete={() => handleDelete(item)}
-                        onTradeSteps={() => addToast('Trade-step scheduling lands in a later phase', 'info')}
+                        onTradeSteps={() => setStepsItem(item)}
                       />
                     ))}
                   </div>
@@ -615,6 +617,17 @@ export function Project() {
           onChange={setEditingItem}
           onSave={handleSaveEdit}
           onClose={() => setEditingItem(null)}
+        />
+      )}
+
+      {stepsItem && (
+        <TradeStepsModal
+          item={stepsItem}
+          onClose={() => setStepsItem(null)}
+          onSaved={() => {
+            setStepsItem(null);
+            load();
+          }}
         />
       )}
     </div>
@@ -744,7 +757,12 @@ function PunchItemRow({
 
           {/* Action row */}
           <div className="flex items-center gap-x-4 gap-y-1.5 mt-2.5 flex-wrap text-[12px] text-[var(--text-3)]">
-            <ItemAction icon={ListPlus} label="Trade steps" onClick={onTradeSteps} accent />
+            <ItemAction
+              icon={ListPlus}
+              label={item.tradeSteps && item.tradeSteps.length > 0 ? `Trade steps (${item.tradeSteps.length})` : 'Trade steps'}
+              onClick={onTradeSteps}
+              accent
+            />
             {item.priority !== 'hot' && <ItemAction icon={Zap} label="Priority" onClick={onTogglePriority} accent />}
             <ItemAction icon={Pencil} label="Edit" onClick={onEdit} />
             <ItemAction icon={Copy} label="Copy" onClick={onCopy} />
@@ -948,5 +966,205 @@ function Field({ label, children }: { label: string; children: React.ReactNode }
       <div className="text-[10px] font-bold uppercase tracking-wider text-[var(--text-3)] mb-1">{label}</div>
       {children}
     </label>
+  );
+}
+
+const MANUAL = '__manual__';
+
+function TradeStepsModal({
+  item, onClose, onSaved,
+}: {
+  item: PunchItem;
+  onClose: () => void;
+  onSaved: () => void;
+}) {
+  const addToast = useUI((s) => s.addToast);
+  const [contacts, setContacts] = useState<Contact[]>([]);
+  const [steps, setSteps] = useState<string[]>(
+    (item.tradeSteps ?? []).slice().sort((a, b) => a.sequence - b.sequence).map((s) => s.note)
+  );
+  const [newStep, setNewStep] = useState('');
+  const [assignee, setAssignee] = useState(item.assignee || '');
+  const [manualMode, setManualMode] = useState(false);
+  const [sendDate, setSendDate] = useState(item.sendDate || '');
+  const [dueDate, setDueDate] = useState(item.dueDate || '');
+  const [notes, setNotes] = useState(item.notes || '');
+  const [saving, setSaving] = useState(false);
+
+  useEffect(() => {
+    listContacts()
+      .then((r) => {
+        setContacts(r.contacts);
+        // If the current assignee isn't a known contact, treat it as manual entry.
+        if (item.assignee && !r.contacts.some((c) => c.name === item.assignee)) setManualMode(true);
+      })
+      .catch(() => {});
+  }, [item.assignee]);
+
+  const addStep = () => {
+    const v = newStep.trim();
+    if (!v) return;
+    setSteps((s) => [...s, v]);
+    setNewStep('');
+  };
+  const removeStep = (i: number) => setSteps((s) => s.filter((_, idx) => idx !== i));
+  const moveStep = (i: number, dir: -1 | 1) => {
+    setSteps((s) => {
+      const j = i + dir;
+      if (j < 0 || j >= s.length) return s;
+      const next = s.slice();
+      const tmp = next[i]!;
+      next[i] = next[j]!;
+      next[j] = tmp;
+      return next;
+    });
+  };
+
+  const save = async () => {
+    setSaving(true);
+    try {
+      await saveTradeSteps(item.id, {
+        steps,
+        assignee,
+        notes,
+        sendDate: sendDate || null,
+        dueDate: dueDate || null,
+      });
+      addToast('Trade steps saved', 'success');
+      onSaved();
+    } catch {
+      addToast('Failed to save trade steps', 'error');
+      setSaving(false);
+    }
+  };
+
+  const selectValue = manualMode ? MANUAL : assignee || '';
+
+  return (
+    <div className="fixed inset-0 bg-black/60 z-50 flex items-end sm:items-center justify-center p-0 sm:p-4" onClick={onClose}>
+      <div
+        className="w-full sm:max-w-lg rounded-t-2xl sm:rounded-2xl p-5 space-y-4 bg-[var(--card)] border-2 border-[var(--border)] max-h-[90vh] overflow-y-auto"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="flex items-start justify-between gap-3">
+          <div className="min-w-0">
+            <h3 className="font-display text-lg font-extrabold uppercase tracking-tight text-[var(--text)]">Trade Steps &amp; Scheduling</h3>
+            <p className="text-xs text-[var(--text-3)] mt-0.5 line-clamp-2">{item.text}</p>
+          </div>
+          <button onClick={onClose} className="text-[var(--text-3)] hover:text-[var(--text)] transition-colors shrink-0">
+            <X size={20} strokeWidth={2} />
+          </button>
+        </div>
+
+        {/* Steps */}
+        <Field label="Steps for the trade to complete">
+          <div className="space-y-1.5">
+            {steps.length === 0 && (
+              <p className="text-xs text-[var(--text-3)] italic py-1">No steps yet — add the first below.</p>
+            )}
+            {steps.map((step, i) => (
+              <div key={i} className="flex items-center gap-2 px-3 py-2 rounded-lg bg-[var(--card-2)] border border-[var(--border)]">
+                <div className="flex flex-col -my-1">
+                  <button onClick={() => moveStep(i, -1)} disabled={i === 0} aria-label="Move up" className="text-[var(--text-4)] hover:text-[var(--text-2)] disabled:opacity-30">
+                    <ChevronUp size={13} strokeWidth={2.5} />
+                  </button>
+                  <button onClick={() => moveStep(i, 1)} disabled={i === steps.length - 1} aria-label="Move down" className="text-[var(--text-4)] hover:text-[var(--text-2)] disabled:opacity-30">
+                    <ChevronDown size={13} strokeWidth={2.5} />
+                  </button>
+                </div>
+                <span className="flex-1 text-sm text-[var(--text)]">{step}</span>
+                <button onClick={() => removeStep(i)} aria-label="Remove step" className="text-[var(--text-3)] hover:text-[var(--red)]">
+                  <X size={15} strokeWidth={2} />
+                </button>
+              </div>
+            ))}
+          </div>
+          <div className="flex gap-2 mt-2">
+            <input
+              value={newStep}
+              onChange={(e) => setNewStep(e.target.value)}
+              onKeyDown={(e) => e.key === 'Enter' && (e.preventDefault(), addStep())}
+              placeholder="Add a step…"
+              className="flex-1 min-w-0 px-3 py-2.5 rounded-lg border-2 border-[var(--border)] bg-[var(--card-2)] text-[var(--text)] placeholder:text-[var(--text-3)] focus:border-[var(--accent)] focus:outline-none text-sm transition-colors"
+            />
+            <button onClick={addStep} className="app-btn-ghost !py-2.5 !px-4 text-sm">Add</button>
+          </div>
+        </Field>
+
+        <div className="h-px bg-[var(--border)]" />
+
+        {/* Assign */}
+        <Field label="Assign to trade partner">
+          <select
+            value={selectValue}
+            onChange={(e) => {
+              if (e.target.value === MANUAL) {
+                setManualMode(true);
+                setAssignee('');
+              } else {
+                setManualMode(false);
+                setAssignee(e.target.value);
+              }
+            }}
+            className="w-full px-3 py-2.5 rounded-lg border-2 border-[var(--border)] bg-[var(--card-2)] text-[var(--text)] focus:border-[var(--accent)] focus:outline-none text-sm transition-colors"
+          >
+            <option value="">— Choose a trade partner —</option>
+            {contacts.map((c) => (
+              <option key={c.id} value={c.name}>
+                {c.name}{c.trade ? ` (${c.trade})` : ''}
+              </option>
+            ))}
+            <option value={MANUAL}>Someone else (enter manually)</option>
+          </select>
+          {manualMode && (
+            <input
+              value={assignee}
+              onChange={(e) => setAssignee(e.target.value)}
+              placeholder="Trade partner name"
+              autoFocus
+              className="w-full mt-2 px-3 py-2.5 rounded-lg border-2 border-[var(--border)] bg-[var(--card-2)] text-[var(--text)] placeholder:text-[var(--text-3)] focus:border-[var(--accent)] focus:outline-none text-sm transition-colors"
+            />
+          )}
+        </Field>
+
+        {/* Dates */}
+        <div className="grid grid-cols-2 gap-3">
+          <Field label="Send request on">
+            <input
+              type="date"
+              value={sendDate}
+              onChange={(e) => setSendDate(e.target.value)}
+              className="w-full px-3 py-2.5 rounded-lg border-2 border-[var(--border)] bg-[var(--card-2)] text-[var(--text)] focus:border-[var(--accent)] focus:outline-none text-sm transition-colors"
+            />
+          </Field>
+          <Field label="Complete by">
+            <input
+              type="date"
+              value={dueDate}
+              onChange={(e) => setDueDate(e.target.value)}
+              className="w-full px-3 py-2.5 rounded-lg border-2 border-[var(--border)] bg-[var(--card-2)] text-[var(--text)] focus:border-[var(--accent)] focus:outline-none text-sm transition-colors"
+            />
+          </Field>
+        </div>
+
+        {/* Notes */}
+        <Field label="Notes for the trade (optional)">
+          <textarea
+            value={notes}
+            onChange={(e) => setNotes(e.target.value)}
+            rows={2}
+            placeholder="e.g. Homeowner walk-through Friday — please prioritize"
+            className="w-full px-3 py-2.5 rounded-lg border-2 border-[var(--border)] bg-[var(--card-2)] text-[var(--text)] placeholder:text-[var(--text-3)] focus:border-[var(--accent)] focus:outline-none resize-none text-sm transition-colors"
+          />
+        </Field>
+
+        <div className="flex gap-2 pt-1">
+          <button onClick={onClose} className="app-btn-ghost flex-1">Cancel</button>
+          <button onClick={save} disabled={saving} className="app-btn-primary flex-1 disabled:opacity-50">
+            {saving ? <Loader2 size={16} className="animate-spin" /> : 'Save'}
+          </button>
+        </div>
+      </div>
+    </div>
   );
 }
