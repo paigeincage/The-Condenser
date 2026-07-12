@@ -1,10 +1,14 @@
 import { useEffect, useState, useRef } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { ChevronDown, Send, Plus, X, Flame, AlertCircle, FileText, Check, Mic, Camera, Loader2 } from 'lucide-react';
+import {
+  ChevronDown, Send, Plus, X, AlertCircle, FileText, Check, Mic, Camera,
+  Loader2, Search, MapPin, Zap, Pencil, Copy, Trash2, SlidersHorizontal, Settings, ListPlus,
+} from 'lucide-react';
 import { getProject } from '../api/projects';
 import { updateItem, deleteItem, createItemsBulk } from '../api/items';
 import { uploadFiles, extractFile } from '../api/files';
 import { TopBar } from '../components/layout/TopBar';
+import { ThemeToggle } from '../components/layout/ThemeToggle';
 import { SendModal } from '../components/send/SendModal';
 import { PhotoAttachments } from '../components/items/PhotoAttachments';
 import { VoiceCapture } from '../components/voice/VoiceCapture';
@@ -21,6 +25,18 @@ const TRADES = [
 ];
 
 type Filter = 'all' | 'pending' | 'wip' | 'done';
+type GroupBy = 'trade' | 'room' | 'priority';
+type SourceFilter = 'all' | 'spec' | 'conf';
+
+const PRIORITY_RANK: Record<string, number> = { Priority: 0, Elevated: 1, Standard: 2 };
+
+function sourceLabel(source: string): string | null {
+  const s = (source || '').toLowerCase();
+  if (s.includes('spec')) return 'Spec Checklist';
+  if (s.includes('conf')) return 'Confirmation';
+  if (!source || s === 'manual') return null;
+  return source;
+}
 
 export function Project() {
   const { id } = useParams<{ id: string }>();
@@ -29,13 +45,20 @@ export function Project() {
   const [project, setProject] = useState<ProjectType | null>(null);
   const [loading, setLoading] = useState(true);
   const [filter, setFilter] = useState<Filter>('all');
+  const [groupBy, setGroupBy] = useState<GroupBy>('trade');
+  const [sourceFilter, setSourceFilter] = useState<SourceFilter>('all');
+  const [search, setSearch] = useState('');
+  const [filtersOpen, setFiltersOpen] = useState(false);
   const [collapsed, setCollapsed] = useState<Record<string, boolean>>({});
+  const [selected, setSelected] = useState<Set<string>>(new Set());
   const [editingItem, setEditingItem] = useState<PunchItem | null>(null);
   const [showSend, setShowSend] = useState(false);
+  const [sendItems, setSendItems] = useState<PunchItem[] | null>(null);
   const [showVoice, setShowVoice] = useState(false);
   const [cameraUploading, setCameraUploading] = useState(false);
   const [quickAdd, setQuickAdd] = useState('');
   const cameraRef = useRef<HTMLInputElement>(null);
+  const searchRef = useRef<HTMLInputElement>(null);
 
   const load = () => {
     if (!id) return;
@@ -47,6 +70,19 @@ export function Project() {
 
   useEffect(load, [id]);
 
+  // ⌘K → focus search
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'k') {
+        e.preventDefault();
+        searchRef.current?.focus();
+      }
+      if (e.key === 'Escape') setFiltersOpen(false);
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, []);
+
   if (loading)
     return (
       <div className="text-center py-20 text-[var(--text-3)] text-sm">Loading…</div>
@@ -57,14 +93,6 @@ export function Project() {
     );
 
   const allItems = project.items || [];
-  const items = allItems.filter((i) => filter === 'all' || i.status === filter);
-
-  const byTrade: Record<string, PunchItem[]> = {};
-  for (const item of items) {
-    const t = item.trade || 'Uncategorized';
-    if (!byTrade[t]) byTrade[t] = [];
-    byTrade[t].push(item);
-  }
 
   const statusCounts = {
     all: allItems.length,
@@ -72,7 +100,54 @@ export function Project() {
     wip: allItems.filter((i) => i.status === 'wip').length,
     done: allItems.filter((i) => i.status === 'done').length,
   };
+  const sourceCounts = {
+    all: allItems.length,
+    spec: allItems.filter((i) => sourceLabel(i.source) === 'Spec Checklist').length,
+    conf: allItems.filter((i) => sourceLabel(i.source) === 'Confirmation').length,
+  };
   const completionPct = allItems.length > 0 ? Math.round((statusCounts.done / allItems.length) * 100) : 0;
+  const activeFilterCount = (groupBy !== 'trade' ? 1 : 0) + (sourceFilter !== 'all' ? 1 : 0);
+
+  const q = search.trim().toLowerCase();
+  const visible = allItems.filter((i) => {
+    if (filter !== 'all' && i.status !== filter) return false;
+    if (sourceFilter === 'spec' && sourceLabel(i.source) !== 'Spec Checklist') return false;
+    if (sourceFilter === 'conf' && sourceLabel(i.source) !== 'Confirmation') return false;
+    if (q && !`${i.text} ${i.location} ${i.trade}`.toLowerCase().includes(q)) return false;
+    return true;
+  });
+
+  const groupKey = (i: PunchItem): string => {
+    if (groupBy === 'room') return i.location?.trim() || 'No location';
+    if (groupBy === 'priority')
+      return i.priority === 'hot' ? 'Priority' : i.priority === 'elevated' ? 'Elevated' : 'Standard';
+    return i.trade || 'Uncategorized';
+  };
+
+  const groups: Record<string, PunchItem[]> = {};
+  for (const i of visible) {
+    const k = groupKey(i);
+    (groups[k] ||= []).push(i);
+  }
+  const groupOrder = Object.keys(groups).sort((a, b) => {
+    if (groupBy === 'priority') return (PRIORITY_RANK[a] ?? 9) - (PRIORITY_RANK[b] ?? 9);
+    return a.localeCompare(b);
+  });
+
+  const groupProgress = (items: PunchItem[]) => {
+    const done = items.filter((i) => i.status === 'done').length;
+    return items.length ? Math.round((done / items.length) * 100) : 0;
+  };
+
+  const selectedItems = allItems.filter((i) => selected.has(i.id));
+
+  const toggleSelect = (itemId: string) =>
+    setSelected((prev) => {
+      const n = new Set(prev);
+      n.has(itemId) ? n.delete(itemId) : n.add(itemId);
+      return n;
+    });
+  const clearSelected = () => setSelected(new Set());
 
   const cycleStatus = async (item: PunchItem) => {
     const next = item.status === 'pending' ? 'wip' : item.status === 'wip' ? 'done' : 'pending';
@@ -84,13 +159,65 @@ export function Project() {
     }
   };
 
+  const togglePriority = async (item: PunchItem) => {
+    const next = item.priority === 'hot' ? 'normal' : 'hot';
+    try {
+      await updateItem(item.id, { priority: next });
+      load();
+    } catch {
+      addToast('Failed to update', 'error');
+    }
+  };
+
+  const copyItem = async (item: PunchItem) => {
+    const text = item.location ? `${item.text} (${item.location})` : item.text;
+    try {
+      await navigator.clipboard.writeText(text);
+      addToast('Copied to clipboard', 'success');
+    } catch {
+      addToast('Copy failed', 'error');
+    }
+  };
+
   const handleDelete = async (item: PunchItem) => {
     try {
       await deleteItem(item.id);
+      setSelected((prev) => {
+        const n = new Set(prev);
+        n.delete(item.id);
+        return n;
+      });
       load();
     } catch {
       addToast('Failed to delete', 'error');
     }
+  };
+
+  const bulkMarkDone = async () => {
+    try {
+      await Promise.all(selectedItems.map((i) => updateItem(i.id, { status: 'done' })));
+      addToast(`Marked ${selectedItems.length} done`, 'success');
+      clearSelected();
+      load();
+    } catch {
+      addToast('Bulk update failed', 'error');
+    }
+  };
+
+  const bulkDelete = async () => {
+    try {
+      await Promise.all(selectedItems.map((i) => deleteItem(i.id)));
+      addToast(`Deleted ${selectedItems.length} items`, 'success');
+      clearSelected();
+      load();
+    } catch {
+      addToast('Bulk delete failed', 'error');
+    }
+  };
+
+  const openSend = (items: PunchItem[] | null) => {
+    setSendItems(items);
+    setShowSend(true);
   };
 
   const handleCameraCapture = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -169,17 +296,7 @@ export function Project() {
     }
   };
 
-  const toggleCollapse = (trade: string) => {
-    setCollapsed((c) => ({ ...c, [trade]: !c[trade] }));
-  };
-
-  const tradeDoneCounts: Record<string, { done: number; total: number }> = {};
-  for (const item of allItems) {
-    const t = item.trade || 'Uncategorized';
-    if (!tradeDoneCounts[t]) tradeDoneCounts[t] = { done: 0, total: 0 };
-    tradeDoneCounts[t].total++;
-    if (item.status === 'done') tradeDoneCounts[t].done++;
-  }
+  const toggleCollapse = (key: string) => setCollapsed((c) => ({ ...c, [key]: !c[key] }));
 
   return (
     <div className="pb-28">
@@ -187,12 +304,22 @@ export function Project() {
         title={project.address}
         back
         right={
-          allItems.length > 0 && (
-            <button onClick={() => setShowSend(true)} className="app-btn-primary text-sm py-2 px-3">
-              <Send size={14} strokeWidth={2.5} />
-              Send
+          <div className="flex items-center gap-2">
+            <ThemeToggle />
+            <button
+              onClick={() => nav('/settings')}
+              aria-label="Settings"
+              className="w-10 h-10 rounded-xl bg-[var(--card-2)] border-2 border-[var(--border)] flex items-center justify-center text-[var(--text-2)] hover:text-[var(--accent)] hover:border-[var(--accent-glow)] transition-colors"
+            >
+              <Settings size={18} strokeWidth={2} />
             </button>
-          )
+            {allItems.length > 0 && (
+              <button onClick={() => openSend(null)} className="app-btn-primary text-sm py-2 px-3">
+                <Send size={14} strokeWidth={2.5} />
+                Send
+              </button>
+            )}
+          </div>
         }
       />
 
@@ -204,33 +331,48 @@ export function Project() {
         </p>
       )}
 
+      {/* Search */}
+      <div className="flex items-center gap-2 mb-3 px-3.5 py-2.5 rounded-xl bg-[var(--card)] border-2 border-[var(--border)] focus-within:border-[var(--accent-glow)] transition-colors">
+        <Search size={16} strokeWidth={2} className="text-[var(--text-3)] shrink-0" />
+        <input
+          ref={searchRef}
+          value={search}
+          onChange={(e) => setSearch(e.target.value)}
+          placeholder="Search items, locations, trades…"
+          className="flex-1 min-w-0 bg-transparent text-[var(--text)] placeholder:text-[var(--text-3)] focus:outline-none text-sm"
+        />
+        {search ? (
+          <button onClick={() => setSearch('')} className="text-[var(--text-3)] hover:text-[var(--text)]">
+            <X size={15} strokeWidth={2} />
+          </button>
+        ) : (
+          <kbd className="hidden sm:inline text-[10px] font-mono text-[var(--text-3)] bg-[var(--card-2)] border border-[var(--border-2)] rounded px-1.5 py-0.5">
+            ⌘K
+          </kbd>
+        )}
+      </div>
+
       {/* Progress */}
       {allItems.length > 0 && (
-        <div className="app-card mb-5">
+        <div className="app-card mb-4">
           <div className="flex items-center justify-between mb-3">
-            <div>
-              <div className="text-[10px] font-bold uppercase tracking-[0.15em] text-[var(--text-3)] mb-0.5">
-                Progress
-              </div>
-              <div className="font-display text-2xl font-extrabold uppercase text-[var(--text)]">
-                {completionPct}% Complete
-              </div>
+            <div className="text-[10px] font-bold uppercase tracking-[0.15em] text-[var(--text-3)]">
+              Progress
             </div>
-            <div className="font-mono text-xl font-bold text-[var(--accent)] tabular-nums">
-              {statusCounts.done}/{allItems.length}
+            <div className="font-display text-3xl font-extrabold text-[var(--accent)] tabular-nums leading-none">
+              {completionPct}%
             </div>
           </div>
-          <div className="w-full h-2.5 bg-[var(--card-2)] rounded-full overflow-hidden border border-[var(--border)]">
+          <div className="w-full h-2.5 bg-[var(--card-2)] rounded-full overflow-hidden border border-[var(--border)] mb-3.5">
             <div
               className="h-full bg-gradient-to-r from-[var(--accent-deep)] to-[var(--accent)] rounded-full transition-all duration-500"
               style={{ width: `${completionPct}%` }}
             />
           </div>
-          <div className="flex flex-wrap gap-4 mt-3 text-[11px]">
-            <StatDot color="var(--text-3)" label="Pending" value={statusCounts.pending} />
-            <StatDot color="var(--amber)" label="WIP" value={statusCounts.wip} />
-            <StatDot color="var(--green)" label="Done" value={statusCounts.done} />
-            <StatDot color="var(--text-3)" label="Total" value={allItems.length} />
+          <div className="grid grid-cols-3 gap-2.5">
+            <MetricTile label="Done" value={statusCounts.done} tone="green" active={filter === 'done'} onClick={() => setFilter(filter === 'done' ? 'all' : 'done')} />
+            <MetricTile label="Pending" value={statusCounts.pending} active={filter === 'pending'} onClick={() => setFilter(filter === 'pending' ? 'all' : 'pending')} />
+            <MetricTile label="Total" value={allItems.length} active={filter === 'all'} onClick={() => setFilter('all')} />
           </div>
         </div>
       )}
@@ -244,81 +386,177 @@ export function Project() {
         />
       )}
 
-      {/* Filter pills */}
-      <div className="flex gap-2 mb-4 overflow-x-auto no-scrollbar">
-        {(['all', 'pending', 'wip', 'done'] as const).map((f) => (
+      {/* Status chips + Filters menu */}
+      <div className="flex items-center justify-between gap-2 mb-3">
+        <div className="flex gap-2 overflow-x-auto no-scrollbar">
+          {(['all', 'pending', 'wip', 'done'] as const).map((f) => (
+            <button
+              key={f}
+              onClick={() => setFilter(f)}
+              className={`px-3.5 py-1.5 rounded-full text-xs font-bold uppercase tracking-wider transition-colors border shrink-0 flex items-center gap-1.5 ${
+                filter === f
+                  ? 'bg-[var(--accent)] text-white border-[var(--accent)]'
+                  : 'bg-transparent text-[var(--text-2)] border-[var(--border-2)] hover:border-[var(--text-3)] hover:text-[var(--text)]'
+              }`}
+            >
+              {f === 'all' ? 'All' : f === 'wip' ? 'WIP' : f.charAt(0).toUpperCase() + f.slice(1)}
+              <span className={`font-mono ${filter === f ? 'opacity-80' : 'text-[var(--text-3)]'}`}>{statusCounts[f]}</span>
+            </button>
+          ))}
+        </div>
+
+        <div className="relative shrink-0">
           <button
-            key={f}
-            onClick={() => setFilter(f)}
-            className={`px-4 py-2 rounded-full text-xs font-bold uppercase tracking-wider transition-colors border-2 shrink-0 ${
-              filter === f
-                ? 'bg-[var(--accent)] text-white border-[var(--accent)]'
-                : 'bg-[var(--card-2)] text-[var(--text-2)] border-[var(--border)] hover:border-[var(--accent-glow)] hover:text-[var(--text)]'
+            onClick={() => setFiltersOpen((o) => !o)}
+            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-bold border transition-colors ${
+              filtersOpen || activeFilterCount > 0
+                ? 'border-[var(--accent)] text-[var(--accent)]'
+                : 'border-[var(--border-2)] text-[var(--text-2)] hover:text-[var(--text)]'
             }`}
           >
-            {f === 'all' ? 'All' : f === 'wip' ? 'WIP' : f.charAt(0).toUpperCase() + f.slice(1)}
-            <span className="ml-1.5 font-mono opacity-70">{statusCounts[f]}</span>
+            <SlidersHorizontal size={13} strokeWidth={2.5} />
+            <span className="hidden sm:inline">Filters</span>
+            {activeFilterCount > 0 && (
+              <span className="bg-[var(--accent)] text-white rounded-full px-1.5 text-[10px] font-extrabold">{activeFilterCount}</span>
+            )}
           </button>
-        ))}
+
+          {filtersOpen && (
+            <>
+              <div className="fixed inset-0 z-10" onClick={() => setFiltersOpen(false)} />
+              <div className="absolute right-0 top-[calc(100%+8px)] z-20 w-[300px] max-w-[calc(100vw-32px)] rounded-2xl bg-[var(--card)] border-2 border-[var(--border-2)] shadow-2xl p-4 animate-fade-up">
+                <div className="mb-4">
+                  <div className="text-[10px] font-bold uppercase tracking-wider text-[var(--text-3)] mb-2">Group by</div>
+                  <div className="flex gap-1 bg-[var(--card-2)] border border-[var(--border)] rounded-full p-1">
+                    {(['trade', 'room', 'priority'] as const).map((g) => (
+                      <button
+                        key={g}
+                        onClick={() => setGroupBy(g)}
+                        className={`flex-1 py-1.5 rounded-full text-xs font-semibold capitalize transition-colors ${
+                          groupBy === g ? 'bg-[var(--card-3)] text-[var(--text)]' : 'text-[var(--text-3)] hover:text-[var(--text)]'
+                        }`}
+                      >
+                        {g}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+                <div className="mb-4">
+                  <div className="text-[10px] font-bold uppercase tracking-wider text-[var(--text-3)] mb-2">Source</div>
+                  <div className="flex flex-wrap gap-2">
+                    {([
+                      ['all', 'All', sourceCounts.all],
+                      ['spec', 'Spec Checklist', sourceCounts.spec],
+                      ['conf', 'Confirmation', sourceCounts.conf],
+                    ] as const).map(([key, lbl, count]) => (
+                      <button
+                        key={key}
+                        onClick={() => setSourceFilter(key)}
+                        className={`px-3 py-1.5 rounded-full text-xs font-semibold border transition-colors ${
+                          sourceFilter === key
+                            ? 'bg-[var(--accent)] text-white border-[var(--accent)]'
+                            : 'border-[var(--border-2)] text-[var(--text-2)] hover:text-[var(--text)]'
+                        }`}
+                      >
+                        {lbl} <span className="opacity-70 font-mono">{count}</span>
+                      </button>
+                    ))}
+                  </div>
+                </div>
+                <div className="flex justify-between gap-2 pt-3 border-t border-[var(--border)]">
+                  <button
+                    onClick={() => { setGroupBy('trade'); setSourceFilter('all'); }}
+                    className="text-xs font-semibold text-[var(--text-3)] hover:text-[var(--text)] px-2"
+                  >
+                    Reset
+                  </button>
+                  <button onClick={() => setFiltersOpen(false)} className="app-btn-primary text-xs py-1.5 px-4">
+                    Done
+                  </button>
+                </div>
+              </div>
+            </>
+          )}
+        </div>
       </div>
 
+      {/* Bulk action bar */}
+      {selected.size > 0 && (
+        <div className="flex items-center justify-between gap-2 mb-4 px-4 py-2.5 rounded-xl bg-[var(--accent-tint)] border-2 border-[var(--accent)] animate-fade-up">
+          <span className="text-sm font-bold text-[var(--accent)]">{selected.size} selected</span>
+          <div className="flex items-center gap-1.5">
+            <button onClick={() => openSend(selectedItems)} className="text-xs font-semibold px-2.5 py-1.5 rounded-lg border border-[var(--accent)] text-[var(--accent)] hover:bg-[var(--accent)] hover:text-white transition-colors">
+              Send
+            </button>
+            <button onClick={bulkMarkDone} className="text-xs font-semibold px-2.5 py-1.5 rounded-lg border border-[var(--accent)] text-[var(--accent)] hover:bg-[var(--accent)] hover:text-white transition-colors">
+              Mark done
+            </button>
+            <button onClick={bulkDelete} className="text-xs font-semibold px-2.5 py-1.5 rounded-lg border border-[var(--red)] text-[var(--red)] hover:bg-[var(--red)] hover:text-white transition-colors">
+              Delete
+            </button>
+            <button onClick={clearSelected} aria-label="Clear selection" className="text-[var(--text-3)] hover:text-[var(--text)] p-1">
+              <X size={16} strokeWidth={2} />
+            </button>
+          </div>
+        </div>
+      )}
+
       {/* Items */}
-      {Object.keys(byTrade).length === 0 ? (
+      {groupOrder.length === 0 ? (
         <div className="app-card text-center py-8">
           <FileText size={28} className="mx-auto text-[var(--text-4)] mb-3" strokeWidth={1.5} />
           <p className="text-sm font-semibold text-[var(--text-2)]">
-            {filter === 'all' ? 'No items yet' : `No ${filter} items`}
+            {allItems.length === 0 ? 'No items yet' : 'No items match your filters'}
           </p>
           <p className="text-xs text-[var(--text-3)] mt-1">
-            {filter === 'all' ? 'Add files or type below to get started' : ''}
+            {allItems.length === 0 ? 'Add files or type below to get started' : 'Try clearing search or filters'}
           </p>
         </div>
       ) : (
         <div className="space-y-4">
-          {Object.entries(byTrade)
-            .sort(([a], [b]) => a.localeCompare(b))
-            .map(([trade, tradeItems]) => {
-              const stats = tradeDoneCounts[trade];
-              const pct = stats ? Math.round((stats.done / stats.total) * 100) : 0;
-              const isCollapsed = collapsed[trade];
-              return (
-                <section key={trade}>
-                  <button
-                    onClick={() => toggleCollapse(trade)}
-                    className="w-full flex items-center justify-between mb-2 group"
-                  >
-                    <h2 className="font-display text-sm font-bold uppercase tracking-[0.12em] text-[var(--text)]">
-                      {trade} <span className="font-mono text-[var(--text-3)]">({tradeItems.length})</span>
-                    </h2>
-                    <div className="flex items-center gap-2">
-                      <span className="font-mono text-[10px] font-bold text-[var(--text-3)] tabular-nums">
-                        {pct}%
-                      </span>
-                      <ChevronDown
-                        size={16}
-                        strokeWidth={2}
-                        className={`text-[var(--text-3)] transition-transform ${isCollapsed ? '-rotate-90' : ''}`}
+          {groupOrder.map((key) => {
+            const groupItems = groups[key] ?? [];
+            const pct = groupProgress(groupItems);
+            const isCollapsed = collapsed[key];
+            return (
+              <section key={key}>
+                <button onClick={() => toggleCollapse(key)} className="w-full flex items-center justify-between mb-2 group">
+                  <h2 className="font-display text-sm font-bold uppercase tracking-[0.12em] text-[var(--text)] text-left">
+                    {key} <span className="font-mono text-[var(--text-3)]">({groupItems.length})</span>
+                  </h2>
+                  <div className="flex items-center gap-2">
+                    <span className="font-mono text-[10px] font-bold text-[var(--text-3)] tabular-nums">{pct}%</span>
+                    <ChevronDown
+                      size={16}
+                      strokeWidth={2}
+                      className={`text-[var(--text-3)] transition-transform ${isCollapsed ? '-rotate-90' : ''}`}
+                    />
+                  </div>
+                </button>
+                {!isCollapsed && (
+                  <div className="space-y-2.5">
+                    {groupItems.map((item) => (
+                      <PunchItemRow
+                        key={item.id}
+                        item={item}
+                        projectId={project.id}
+                        selected={selected.has(item.id)}
+                        onToggleSelect={() => toggleSelect(item.id)}
+                        onCycleStatus={() => cycleStatus(item)}
+                        onTogglePriority={() => togglePriority(item)}
+                        onCopy={() => copyItem(item)}
+                        onSend={() => openSend([item])}
+                        onEdit={() => setEditingItem({ ...item })}
+                        onDelete={() => handleDelete(item)}
+                        onTradeSteps={() => addToast('Trade-step scheduling lands in a later phase', 'info')}
                       />
-                    </div>
-                  </button>
-                  {!isCollapsed && (
-                    <div className="space-y-2">
-                      {tradeItems.map((item) => (
-                        <PunchItemRow
-                          key={item.id}
-                          item={item}
-                          projectId={project.id}
-                          onCycleStatus={() => cycleStatus(item)}
-                          onEdit={() => setEditingItem({ ...item })}
-                          onDelete={() => handleDelete(item)}
-                        />
-                      ))}
-                    </div>
-                  )}
-                  <div className="h-px bg-[var(--border)] mt-4" />
-                </section>
-              );
-            })}
+                    ))}
+                  </div>
+                )}
+                <div className="h-px bg-[var(--border)] mt-4" />
+              </section>
+            );
+          })}
         </div>
       )}
 
@@ -330,16 +568,13 @@ export function Project() {
         + Add files or extract from PDF
       </button>
 
-      {/* Bottom action bar — sticky */}
-      <div
-        className="fixed bottom-0 left-0 right-0 z-30 px-5 py-3 border-t-2"
-        style={{ background: 'var(--card)', borderColor: 'var(--border)' }}
-      >
+      {/* Sticky bottom bar */}
+      <div className="fixed bottom-0 left-0 right-0 z-30 px-5 py-3 border-t-2" style={{ background: 'var(--card)', borderColor: 'var(--border)' }}>
         <div className="max-w-[680px] mx-auto flex gap-2">
           <button
             onClick={() => setShowVoice(true)}
             aria-label="Voice capture"
-            className="w-12 h-12 shrink-0 rounded-xl bg-[var(--card-2)] border-2 border-[var(--border)] text-[var(--accent)] hover:border-[var(--accent-glow)] transition-colors flex items-center justify-center"
+            className="w-12 h-12 shrink-0 rounded-xl bg-gradient-to-br from-[var(--accent-deep)] to-[var(--accent)] text-white shadow-lg shadow-[var(--accent-glow)] hover:scale-105 transition-transform flex items-center justify-center"
           >
             <Mic size={18} strokeWidth={2.5} />
           </button>
@@ -349,11 +584,7 @@ export function Project() {
             aria-label="Take photo of notes"
             className="w-12 h-12 shrink-0 rounded-xl bg-[var(--card-2)] border-2 border-[var(--border)] text-[var(--accent)] hover:border-[var(--accent-glow)] transition-colors flex items-center justify-center disabled:opacity-50"
           >
-            {cameraUploading ? (
-              <Loader2 size={18} strokeWidth={2.5} className="animate-spin" />
-            ) : (
-              <Camera size={18} strokeWidth={2.5} />
-            )}
+            {cameraUploading ? <Loader2 size={18} strokeWidth={2.5} className="animate-spin" /> : <Camera size={18} strokeWidth={2.5} />}
           </button>
           <input
             value={quickAdd}
@@ -362,34 +593,19 @@ export function Project() {
             placeholder="Add punch item…"
             className="flex-1 min-w-0 px-4 py-3 rounded-xl border-2 border-[var(--border)] bg-[var(--card-2)] text-[var(--text)] placeholder:text-[var(--text-3)] focus:border-[var(--accent)] focus:outline-none transition-colors text-sm"
           />
-          <button
-            onClick={handleQuickAdd}
-            disabled={!quickAdd.trim()}
-            className="app-btn-primary px-4 disabled:opacity-40 disabled:cursor-not-allowed"
-          >
+          <button onClick={handleQuickAdd} disabled={!quickAdd.trim()} className="app-btn-primary px-4 disabled:opacity-40 disabled:cursor-not-allowed">
             <Plus size={18} strokeWidth={2.5} />
           </button>
         </div>
-        <input
-          ref={cameraRef}
-          type="file"
-          accept="image/*"
-          capture="environment"
-          className="hidden"
-          onChange={handleCameraCapture}
-        />
+        <input ref={cameraRef} type="file" accept="image/*" capture="environment" className="hidden" onChange={handleCameraCapture} />
       </div>
 
       {showSend && (
-        <SendModal items={allItems} projectAddress={project.address} onClose={() => setShowSend(false)} />
+        <SendModal items={sendItems ?? allItems} projectAddress={project.address} onClose={() => { setShowSend(false); setSendItems(null); }} />
       )}
 
       {showVoice && (
-        <VoiceCapture
-          projectId={project.id}
-          onClose={() => setShowVoice(false)}
-          onCommitted={load}
-        />
+        <VoiceCapture projectId={project.id} onClose={() => setShowVoice(false)} onCommitted={load} />
       )}
 
       {editingItem && (
@@ -405,115 +621,179 @@ export function Project() {
   );
 }
 
-function StatDot({ color, label, value }: { color: string; label: string; value: number }) {
+function MetricTile({
+  label, value, tone, active, onClick,
+}: {
+  label: string;
+  value: number;
+  tone?: 'green';
+  active?: boolean;
+  onClick: () => void;
+}) {
   return (
-    <div className="flex items-center gap-1.5">
-      <span style={{ color, background: color, width: 8, height: 8 }} className="rounded-full" />
-      <span className="text-[var(--text-3)] uppercase tracking-wider text-[10px] font-bold">{label}</span>
-      <span className="font-mono text-[var(--text)] tabular-nums font-semibold">{value}</span>
-    </div>
+    <button
+      onClick={onClick}
+      className={`rounded-xl py-2.5 px-2 text-center transition-all border ${
+        active ? 'border-[var(--accent)] bg-[var(--accent-tint)]' : 'border-[var(--border)] bg-[var(--card-2)] hover:-translate-y-0.5'
+      }`}
+    >
+      <div className={`font-display text-lg font-extrabold tabular-nums ${tone === 'green' ? 'text-[var(--green)]' : 'text-[var(--text)]'}`}>
+        {value}
+      </div>
+      <div className="text-[10px] uppercase tracking-wider text-[var(--text-3)] font-bold">{label}</div>
+    </button>
   );
 }
 
 function PunchItemRow({
-  item,
-  projectId,
-  onCycleStatus,
-  onEdit,
-  onDelete,
+  item, projectId, selected, onToggleSelect, onCycleStatus, onTogglePriority,
+  onCopy, onSend, onEdit, onDelete, onTradeSteps,
 }: {
   item: PunchItem;
   projectId: string;
+  selected: boolean;
+  onToggleSelect: () => void;
   onCycleStatus: () => void;
+  onTogglePriority: () => void;
+  onCopy: () => void;
+  onSend: () => void;
   onEdit: () => void;
   onDelete: () => void;
+  onTradeSteps: () => void;
 }) {
   const done = item.status === 'done';
   const wip = item.status === 'wip';
+  const source = sourceLabel(item.source);
 
   return (
-    <div className="app-card !p-3"><div className="flex items-start gap-3">
-      {/* Status cycle button */}
-      <button
-        onClick={onCycleStatus}
-        className={`mt-0.5 w-6 h-6 rounded-full border-2 flex items-center justify-center shrink-0 transition-colors ${
-          done
-            ? 'bg-[var(--green)] border-[var(--green)]'
-            : wip
-              ? 'bg-[var(--amber)] border-[var(--amber)]'
-              : 'border-[var(--border-2)] hover:border-[var(--accent)]'
-        }`}
-        aria-label={`Status: ${item.status}. Tap to cycle.`}
-      >
-        {done && <Check size={14} strokeWidth={3} className="text-white" />}
-      </button>
-
-      {/* Priority left-border bar */}
-      {item.priority !== 'normal' && (
-        <div
-          className="w-1 rounded-full self-stretch shrink-0"
-          style={{
-            background: item.priority === 'hot' ? 'var(--red)' : 'var(--amber)',
-          }}
+    <div
+      className={`app-card !p-3.5 !rounded-2xl transition-colors ${
+        selected ? '!border-[var(--accent)]' : ''
+      } ${item.priority === 'hot' ? 'border-l-[3px] border-l-[var(--red)]' : ''} ${done ? 'opacity-60' : ''}`}
+    >
+      <div className="flex items-start gap-3">
+        {/* Multi-select checkbox */}
+        <input
+          type="checkbox"
+          checked={selected}
+          onChange={onToggleSelect}
+          aria-label="Select item"
+          className="mt-1 w-5 h-5 shrink-0 rounded accent-[var(--accent)] cursor-pointer"
         />
-      )}
 
-      <div className="flex-1 min-w-0 cursor-pointer" onClick={onEdit}>
-        <p
-          className={`text-sm font-semibold break-words ${
-            done ? 'text-[var(--text-3)] line-through' : 'text-[var(--text)]'
+        {/* Status cycle */}
+        <button
+          onClick={onCycleStatus}
+          className={`mt-0.5 w-6 h-6 rounded-full border-2 flex items-center justify-center shrink-0 transition-colors ${
+            done ? 'bg-[var(--green)] border-[var(--green)]' : wip ? 'bg-[var(--amber)] border-[var(--amber)]' : 'border-[var(--border-2)] hover:border-[var(--accent)]'
+          }`}
+          aria-label={`Status: ${item.status}. Tap to cycle.`}
+        >
+          {done && <Check size={14} strokeWidth={3} className="text-white" />}
+        </button>
+
+        <div className="flex-1 min-w-0">
+          {/* Task text — larger per v2 */}
+          <p className={`text-[15px] font-bold leading-snug break-words ${done ? 'text-[var(--text-3)] line-through' : 'text-[var(--text)]'}`}>
+            {item.text}
+          </p>
+
+          {/* Location on its own line */}
+          {item.location && (
+            <div className="flex items-center gap-1 mt-1.5 text-[13px] text-[var(--text-2)] font-medium">
+              <MapPin size={13} strokeWidth={2.5} className="text-[var(--accent)] shrink-0" />
+              {item.location}
+            </div>
+          )}
+
+          {/* Tags */}
+          <div className="flex items-center gap-1.5 mt-2 flex-wrap">
+            {item.priority === 'hot' && (
+              <button
+                onClick={onTogglePriority}
+                title="Click to remove priority"
+                className="inline-flex items-center gap-1 text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-full bg-[var(--accent)] text-white hover:opacity-90 transition-opacity"
+              >
+                <Zap size={10} strokeWidth={2.5} />
+                Priority
+              </button>
+            )}
+            {item.priority === 'elevated' && (
+              <span className="inline-flex items-center gap-1 text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-full bg-[var(--amber)]/10 text-[var(--amber)] border border-[var(--amber)]/30">
+                <AlertCircle size={10} strokeWidth={2.5} />
+                Elevated
+              </span>
+            )}
+            {source && (
+              <span className="text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-full bg-[var(--card-3)] text-[var(--text-2)]">
+                {source}
+              </span>
+            )}
+            {item.assignee && (
+              <span className="inline-flex items-center gap-1 text-[10px] font-semibold px-2 py-0.5 rounded-full bg-[var(--green)]/10 text-[var(--green)] border border-[var(--green)]/30">
+                <Check size={10} strokeWidth={3} />
+                {item.assignee}
+              </span>
+            )}
+          </div>
+
+          {/* Photo strip */}
+          <div className="mt-2.5 overflow-x-auto no-scrollbar">
+            <PhotoAttachments itemId={item.id} projectId={projectId} compact />
+          </div>
+
+          {/* Action row */}
+          <div className="flex items-center gap-x-4 gap-y-1.5 mt-2.5 flex-wrap text-[12px] text-[var(--text-3)]">
+            <ItemAction icon={ListPlus} label="Trade steps" onClick={onTradeSteps} accent />
+            {item.priority !== 'hot' && <ItemAction icon={Zap} label="Priority" onClick={onTogglePriority} accent />}
+            <ItemAction icon={Pencil} label="Edit" onClick={onEdit} />
+            <ItemAction icon={Copy} label="Copy" onClick={onCopy} />
+            <ItemAction icon={Send} label="Send" onClick={onSend} />
+            <ItemAction icon={Trash2} label="Delete" onClick={onDelete} danger />
+          </div>
+        </div>
+
+        {/* Assign */}
+        <button
+          onClick={onEdit}
+          className={`shrink-0 flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-xs font-semibold border transition-colors ${
+            item.assignee
+              ? 'border-[var(--green)]/40 bg-[var(--green)]/10 text-[var(--green)]'
+              : 'border-[var(--border-2)] bg-[var(--card-2)] text-[var(--text-2)] hover:border-[var(--text-3)]'
           }`}
         >
-          {item.text}
-        </p>
-        <div className="flex items-center gap-1.5 mt-1.5 flex-wrap">
-          {item.priority === 'hot' && (
-            <span className="inline-flex items-center gap-1 text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded bg-[var(--red)]/10 text-[var(--red)] border border-[var(--red)]/30">
-              <Flame size={10} strokeWidth={2.5} />
-              Hot
-            </span>
-          )}
-          {item.priority === 'elevated' && (
-            <span className="inline-flex items-center gap-1 text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded bg-[var(--amber)]/10 text-[var(--amber)] border border-[var(--amber)]/30">
-              <AlertCircle size={10} strokeWidth={2.5} />
-              Elevated
-            </span>
-          )}
-          {item.location && (
-            <span className="text-[10px] font-mono uppercase tracking-wider px-2 py-0.5 rounded bg-[var(--card-2)] text-[var(--text-2)] border border-[var(--border)]">
-              {item.location}
-            </span>
-          )}
-          {item.assignee && (
-            <span className="text-[10px] text-[var(--text-3)] italic">@{item.assignee}</span>
-          )}
-          {item.notes && (
-            <span className="text-[10px] text-[var(--text-3)] italic truncate max-w-[180px]">{item.notes}</span>
-          )}
-        </div>
-      </div>
-
-      <button
-        onClick={onDelete}
-        aria-label="Delete item"
-        className="text-[var(--text-4)] hover:text-[var(--red)] transition-colors p-1 shrink-0"
-      >
-        <X size={16} strokeWidth={2} />
-      </button>
-      </div>
-
-      {/* Photo attachments strip */}
-      <div className="mt-3 ml-9 overflow-x-auto">
-        <PhotoAttachments itemId={item.id} projectId={projectId} compact />
+          {item.assignee ? item.assignee.split(' ')[0] : 'Assign'}
+          <ChevronDown size={12} strokeWidth={2.5} />
+        </button>
       </div>
     </div>
   );
 }
 
+function ItemAction({
+  icon: Icon, label, onClick, accent, danger,
+}: {
+  icon: typeof Pencil;
+  label: string;
+  onClick: () => void;
+  accent?: boolean;
+  danger?: boolean;
+}) {
+  return (
+    <button
+      onClick={onClick}
+      className={`inline-flex items-center gap-1 transition-colors ${
+        accent ? 'text-[var(--accent)] font-semibold hover:opacity-80' : danger ? 'hover:text-[var(--red)]' : 'hover:text-[var(--text)]'
+      }`}
+    >
+      <Icon size={12} strokeWidth={2.5} />
+      {label}
+    </button>
+  );
+}
+
 function FilesCollapse({
-  files,
-  open,
-  onToggle,
+  files, open, onToggle,
 }: {
   files: NonNullable<ProjectType['files']>;
   open: boolean;
@@ -527,18 +807,12 @@ function FilesCollapse({
       >
         <div className="flex items-center gap-2">
           <FileText size={14} className="text-[var(--accent)]" strokeWidth={2} />
-          <span className="text-xs font-bold uppercase tracking-wider text-[var(--text-2)]">
-            Uploaded Files
-          </span>
+          <span className="text-xs font-bold uppercase tracking-wider text-[var(--text-2)]">Uploaded Files</span>
           <span className="font-mono text-[10px] text-[var(--text-3)] bg-[var(--card)] px-1.5 py-0.5 rounded-full border border-[var(--border)]">
             {files.length}
           </span>
         </div>
-        <ChevronDown
-          size={14}
-          strokeWidth={2}
-          className={`text-[var(--text-3)] transition-transform ${open ? '' : '-rotate-90'}`}
-        />
+        <ChevronDown size={14} strokeWidth={2} className={`text-[var(--text-3)] transition-transform ${open ? '' : '-rotate-90'}`} />
       </button>
       {open && (
         <div className="mt-2 space-y-1.5">
@@ -574,11 +848,7 @@ function FilesCollapse({
 }
 
 function EditItemModal({
-  item,
-  projectId,
-  onChange,
-  onSave,
-  onClose,
+  item, projectId, onChange, onSave, onClose,
 }: {
   item: PunchItem;
   projectId: string;
@@ -589,13 +859,11 @@ function EditItemModal({
   return (
     <div className="fixed inset-0 bg-black/60 z-50 flex items-end sm:items-center justify-center p-0 sm:p-4" onClick={onClose}>
       <div
-        className="w-full sm:max-w-md rounded-t-2xl sm:rounded-2xl p-5 space-y-3 bg-[var(--card)] border-2 border-[var(--border)]"
+        className="w-full sm:max-w-md rounded-t-2xl sm:rounded-2xl p-5 space-y-3 bg-[var(--card)] border-2 border-[var(--border)] max-h-[90vh] overflow-y-auto"
         onClick={(e) => e.stopPropagation()}
       >
         <div className="flex items-center justify-between">
-          <h3 className="font-display text-lg font-extrabold uppercase tracking-tight text-[var(--text)]">
-            Edit Item
-          </h3>
+          <h3 className="font-display text-lg font-extrabold uppercase tracking-tight text-[var(--text)]">Edit Item</h3>
           <button onClick={onClose} className="text-[var(--text-3)] hover:text-[var(--text)] transition-colors">
             <X size={20} strokeWidth={2} />
           </button>
@@ -619,9 +887,7 @@ function EditItemModal({
               onChange={(e) => onChange({ ...item, trade: e.target.value })}
             >
               {TRADES.map((t) => (
-                <option key={t} value={t}>
-                  {t}
-                </option>
+                <option key={t} value={t}>{t}</option>
               ))}
             </select>
           </Field>
@@ -633,7 +899,7 @@ function EditItemModal({
             >
               <option value="normal">Normal</option>
               <option value="elevated">Elevated</option>
-              <option value="hot">Hot</option>
+              <option value="hot">Priority</option>
             </select>
           </Field>
         </div>
@@ -646,7 +912,7 @@ function EditItemModal({
             onChange={(e) => onChange({ ...item, location: e.target.value })}
           />
         </Field>
-        <Field label="Assignee">
+        <Field label="Assign to trade partner">
           <input
             className="w-full px-3 py-2.5 rounded-lg border-2 border-[var(--border)] bg-[var(--card-2)] text-[var(--text)] focus:border-[var(--accent)] focus:outline-none text-sm transition-colors"
             placeholder="Trade partner name"
@@ -668,12 +934,8 @@ function EditItemModal({
         </Field>
 
         <div className="flex gap-2 pt-1">
-          <button onClick={onClose} className="app-btn-ghost flex-1">
-            Cancel
-          </button>
-          <button onClick={onSave} className="app-btn-primary flex-1">
-            Save
-          </button>
+          <button onClick={onClose} className="app-btn-ghost flex-1">Cancel</button>
+          <button onClick={onSave} className="app-btn-primary flex-1">Save</button>
         </div>
       </div>
     </div>
@@ -683,9 +945,7 @@ function EditItemModal({
 function Field({ label, children }: { label: string; children: React.ReactNode }) {
   return (
     <label className="block">
-      <div className="text-[10px] font-bold uppercase tracking-wider text-[var(--text-3)] mb-1">
-        {label}
-      </div>
+      <div className="text-[10px] font-bold uppercase tracking-wider text-[var(--text-3)] mb-1">{label}</div>
       {children}
     </label>
   );
