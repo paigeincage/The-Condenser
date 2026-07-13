@@ -43,6 +43,7 @@ export interface Profile {
   fontScale: number; // 1.0 = default; 0.9 | 1.0 | 1.15 | 1.3 | 1.5
   highContrast: boolean;
   themeMode?: ThemeMode; // undefined = follow system
+  accentColor?: string; // accent palette id (see config/accents); undefined = maroon default
 
   // Weather source
   weatherCommunityId?: string;

@@ -5,6 +5,7 @@ import { BottomNav } from './components/layout/BottomNav';
 import { SplashScreen } from './components/layout/SplashScreen';
 import { useAccessibility } from './hooks/useAccessibility';
 import { useTheme } from './hooks/useTheme';
+import { useAccentColor } from './hooks/useAccentColor';
 
 import { useAuth } from './stores/auth';
 
@@ -63,6 +64,7 @@ function AppShellHome() {
 export default function App() {
   useAccessibility();
   useTheme();
+  useAccentColor();
 
   const [showSplash, setShowSplash] = useState(() => {
     try {

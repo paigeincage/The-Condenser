@@ -1,8 +1,9 @@
-import { Moon, Sun } from 'lucide-react';
+import { Moon, Sun, Check } from 'lucide-react';
 import { TopBar } from '../../components/layout/TopBar';
 import { useProfile, saveProfile } from '../../hooks/useProfile';
 import { useTheme } from '../../hooks/useTheme';
 import { Section } from '../../components/settings/SettingsField';
+import { ACCENTS, DEFAULT_ACCENT } from '../../config/accents';
 
 const SCALE_OPTIONS = [
   { value: 0.9, label: 'Small' },
@@ -44,6 +45,35 @@ export function AccessibilitySettings() {
             <Moon size={16} strokeWidth={2.5} />
             Dark
           </button>
+        </div>
+      </Section>
+
+      <Section title="Action color" description="Recolors buttons and highlights across the app. Maroon is the default.">
+        <div className="flex flex-wrap gap-3">
+          {ACCENTS.map((a) => {
+            const active = (profile.accentColor || DEFAULT_ACCENT) === a.id;
+            return (
+              <button
+                key={a.id}
+                onClick={() => saveProfile({ accentColor: a.id })}
+                aria-label={a.label}
+                title={a.label}
+                className="flex flex-col items-center gap-1.5 group"
+              >
+                <span
+                  className={`w-12 h-12 rounded-2xl flex items-center justify-center transition-transform group-hover:-translate-y-0.5 ${
+                    active ? 'ring-2 ring-offset-2 ring-offset-[var(--card)] ring-[var(--text)]' : ''
+                  }`}
+                  style={{ background: a.base, boxShadow: active ? undefined : '0 2px 8px -2px rgba(0,0,0,0.3)' }}
+                >
+                  {active && <Check size={20} strokeWidth={3} className="text-white" />}
+                </span>
+                <span className={`text-[10px] font-bold uppercase tracking-wider ${active ? 'text-[var(--text)]' : 'text-[var(--text-3)]'}`}>
+                  {a.label}
+                </span>
+              </button>
+            );
+          })}
         </div>
       </Section>
 
