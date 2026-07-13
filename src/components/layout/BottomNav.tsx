@@ -1,10 +1,9 @@
 import { NavLink, useLocation } from 'react-router-dom';
-import { Home, LayoutDashboard, Users, Settings } from 'lucide-react';
+import { Home, LayoutDashboard, Settings } from 'lucide-react';
 
 const tabs = [
   { to: '/', label: 'Home', Icon: Home },
   { to: '/dashboard', label: 'Dashboard', Icon: LayoutDashboard },
-  { to: '/contacts', label: 'Contacts', Icon: Users },
   { to: '/settings', label: 'Settings', Icon: Settings },
 ];
 

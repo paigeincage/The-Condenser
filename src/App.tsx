@@ -23,7 +23,6 @@ import { CommunitiesSettings } from './pages/settings/CommunitiesSettings';
 import { TemplatesSettings } from './pages/settings/TemplatesSettings';
 import { NotificationsSettings } from './pages/settings/NotificationsSettings';
 import { FieldLanguageSettings } from './pages/settings/FieldLanguageSettings';
-import { ContactsSettings } from './pages/settings/ContactsSettings';
 import { AccessibilitySettings } from './pages/settings/AccessibilitySettings';
 
 const SPLASH_SESSION_KEY = 'condenser_splash_seen_v1';
@@ -86,14 +85,14 @@ export default function App() {
             <Route path="/new" element={<NewProject />} />
             <Route path="/project/:id" element={<Project />} />
             <Route path="/project/:id/intake" element={<Intake />} />
-            <Route path="/contacts" element={<Contacts />} />
+            <Route path="/contacts" element={<Navigate to="/settings/contacts" replace />} />
             <Route path="/settings" element={<Settings />} />
             <Route path="/settings/profile" element={<ProfileSettings />} />
             <Route path="/settings/communities" element={<CommunitiesSettings />} />
             <Route path="/settings/templates" element={<TemplatesSettings />} />
             <Route path="/settings/notifications" element={<NotificationsSettings />} />
             <Route path="/settings/field-language" element={<FieldLanguageSettings />} />
-            <Route path="/settings/contacts" element={<ContactsSettings />} />
+            <Route path="/settings/contacts" element={<Contacts />} />
             <Route path="/settings/accessibility" element={<AccessibilitySettings />} />
             <Route path="/lots" element={<Lots />} />
               <Route path="*" element={<Navigate to="/" replace />} />
