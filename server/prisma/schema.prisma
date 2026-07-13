@@ -28,13 +28,17 @@ model User {
 model Project {
   id        String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   userId    String   @map("user_id") @db.Uuid
-  address   String
-  community String   @default("")
-  lot       String   @default("")
-  status    String   @default("active")
-  date      String   @default("")
-  createdAt DateTime @default(now()) @map("created_at")
-  updatedAt DateTime @updatedAt @map("updated_at")
+  address     String
+  community   String   @default("")
+  lot         String   @default("")
+  status      String   @default("active")
+  date        String   @default("")
+  stage       String   @default("Pre-construction")
+  startDate   String?  @map("start_date")
+  targetDate  String?  @map("target_date")
+  completedAt String?  @map("completed_at")
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
 
   user      User         @relation(fields: [userId], references: [id])
   items     PunchItem[]

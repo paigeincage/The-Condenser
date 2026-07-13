@@ -4,7 +4,7 @@ import {
   ChevronDown, ChevronUp, Send, Plus, X, AlertCircle, FileText, Check, Mic, Camera,
   Loader2, Search, MapPin, Zap, Pencil, Copy, Trash2, SlidersHorizontal, Settings, ListPlus,
 } from 'lucide-react';
-import { getProject } from '../api/projects';
+import { getProject, updateProject } from '../api/projects';
 import { updateItem, deleteItem, createItemsBulk, saveTradeSteps } from '../api/items';
 import { listContacts } from '../api/contacts';
 import { uploadFiles, extractFile } from '../api/files';
@@ -14,6 +14,7 @@ import { SendModal } from '../components/send/SendModal';
 import { PhotoAttachments } from '../components/items/PhotoAttachments';
 import { VoiceCapture } from '../components/voice/VoiceCapture';
 import { useUI } from '../stores/ui';
+import { BUILD_STAGES } from '../types';
 import type { Project as ProjectType, PunchItem, Contact } from '../types';
 
 const TRADES = [
@@ -150,6 +151,15 @@ export function Project() {
       return n;
     });
   const clearSelected = () => setSelected(new Set());
+
+  const patchProject = async (data: Partial<ProjectType>) => {
+    try {
+      const { project: updated } = await updateProject(project.id, data);
+      setProject((p) => (p ? { ...p, ...updated } : p));
+    } catch {
+      addToast('Failed to update home', 'error');
+    }
+  };
 
   const cycleStatus = async (item: PunchItem) => {
     const next = item.status === 'pending' ? 'wip' : item.status === 'wip' ? 'done' : 'pending';
@@ -326,12 +336,51 @@ export function Project() {
       />
 
       {project.community && (
-        <p className="text-xs text-[var(--text-3)] -mt-2 mb-5 font-mono">
+        <p className="text-xs text-[var(--text-3)] -mt-2 mb-3 font-mono">
           {project.community.toUpperCase()}
           {project.lot ? ` · LOT ${project.lot}` : ''}
           {project.date ? ` · ${project.date}` : ''}
         </p>
       )}
+
+      {/* Build stage + schedule — feeds the dashboard */}
+      <div className="flex flex-wrap items-center gap-2 mb-5">
+        <div className="relative">
+          <select
+            value={project.stage}
+            onChange={(e) => patchProject({ stage: e.target.value })}
+            aria-label="Build stage"
+            className={`appearance-none pl-3 pr-7 py-1.5 rounded-full text-xs font-bold uppercase tracking-wider border-2 cursor-pointer focus:outline-none transition-colors ${
+              project.stage === 'Complete'
+                ? 'border-[var(--green)] text-[var(--green)] bg-[var(--green)]/10'
+                : 'border-[var(--accent)] text-[var(--accent)] bg-[var(--accent-tint)]'
+            }`}
+          >
+            {BUILD_STAGES.map((s) => (
+              <option key={s} value={s}>{s}</option>
+            ))}
+          </select>
+          <ChevronDown size={13} strokeWidth={2.5} className="absolute right-2 top-1/2 -translate-y-1/2 pointer-events-none text-current opacity-70" />
+        </div>
+        <label className="flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-wider text-[var(--text-3)]">
+          Start
+          <input
+            type="date"
+            value={project.startDate ?? ''}
+            onChange={(e) => patchProject({ startDate: e.target.value || null })}
+            className="px-2 py-1 rounded-lg border-2 border-[var(--border)] bg-[var(--card-2)] text-[var(--text)] text-xs focus:border-[var(--accent)] focus:outline-none"
+          />
+        </label>
+        <label className="flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-wider text-[var(--text-3)]">
+          Target
+          <input
+            type="date"
+            value={project.targetDate ?? ''}
+            onChange={(e) => patchProject({ targetDate: e.target.value || null })}
+            className="px-2 py-1 rounded-lg border-2 border-[var(--border)] bg-[var(--card-2)] text-[var(--text)] text-xs focus:border-[var(--accent)] focus:outline-none"
+          />
+        </label>
+      </div>
 
       {/* Search */}
       <div className="flex items-center gap-2 mb-3 px-3.5 py-2.5 rounded-xl bg-[var(--card)] border-2 border-[var(--border)] focus-within:border-[var(--accent-glow)] transition-colors">

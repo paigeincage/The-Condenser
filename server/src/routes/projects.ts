@@ -64,7 +64,20 @@ projectsRouter.patch('/:id', async (req, res) => {
   const userId = req.user!.userId;
   const existing = await prisma.project.findFirst({ where: { id: req.params.id, userId } });
   if (!existing) { res.status(404).json({ error: 'Project not found' }); return; }
-  const { address, community, lot, date, status } = req.body;
+  const { address, community, lot, date, status, stage, startDate, targetDate, completedAt } = req.body;
+
+  // Auto-stamp completedAt the first time a home reaches Complete; clear it if it leaves.
+  let completedAtPatch: { completedAt?: string | null } = {};
+  if (completedAt !== undefined) {
+    completedAtPatch = { completedAt };
+  } else if (stage !== undefined && stage !== existing.stage) {
+    if (stage === 'Complete' && !existing.completedAt) {
+      completedAtPatch = { completedAt: new Date().toISOString().slice(0, 10) };
+    } else if (stage !== 'Complete' && existing.completedAt) {
+      completedAtPatch = { completedAt: null };
+    }
+  }
+
   const project = await prisma.project.update({
     where: { id: req.params.id },
     data: {
@@ -73,6 +86,10 @@ projectsRouter.patch('/:id', async (req, res) => {
       ...(lot !== undefined && { lot }),
       ...(date !== undefined && { date }),
       ...(status !== undefined && { status }),
+      ...(stage !== undefined && { stage }),
+      ...(startDate !== undefined && { startDate }),
+      ...(targetDate !== undefined && { targetDate }),
+      ...completedAtPatch,
     },
   });
   res.json({ project });

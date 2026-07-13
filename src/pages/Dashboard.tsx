@@ -1,6 +1,6 @@
-import { useMemo } from 'react';
-import { useLiveQuery } from 'dexie-react-hooks';
-import { db, type CommunityHome } from '../db';
+import { useEffect, useState } from 'react';
+import { useNavigate } from 'react-router-dom';
+import { getDashboard } from '../api/dashboard';
 import { useProfile } from '../hooks/useProfile';
 import { HeroMetric } from '../components/dashboard/HeroMetric';
 import { StageBarChart } from '../components/dashboard/StageBarChart';
@@ -8,90 +8,7 @@ import { VelocityLineChart } from '../components/dashboard/VelocityLineChart';
 import { PunchActivityChart } from '../components/dashboard/PunchActivityChart';
 import { TradeResponseList } from '../components/dashboard/TradeResponseList';
 import { ActionFeed } from '../components/dashboard/ActionFeed';
-
-// Phase 2 — flagged, not built
-// - Budget tracking per home + variance graphs
-// - Inferred stage tracking (app guesses stage from punch list activity)
-// - Mobile home-screen widget (Quick Punch, Today's Homes, Send Last List)
-
-const STAGES: CommunityHome['stage'][] = [
-  'Pre-construction',
-  'Framing',
-  'Drywall',
-  'Paint',
-  'Trim',
-  'Tile',
-  'Punch',
-  'Complete',
-];
-
-const MOCK_STAGE_DATA = [
-  { stage: 'Framing', count: 6 },
-  { stage: 'Drywall', count: 4 },
-  { stage: 'Paint', count: 3 },
-  { stage: 'Trim', count: 5 },
-  { stage: 'Tile', count: 2 },
-  { stage: 'Punch', count: 4 },
-  { stage: 'Complete', count: 8 },
-];
-
-const MOCK_VELOCITY = [
-  { month: 'Nov', avgDays: 128 },
-  { month: 'Dec', avgDays: 121 },
-  { month: 'Jan', avgDays: 115 },
-  { month: 'Feb', avgDays: 118 },
-  { month: 'Mar', avgDays: 109 },
-  { month: 'Apr', avgDays: 104 },
-];
-
-const MOCK_PUNCH_ACTIVITY = [
-  { week: 'W1', count: 12 },
-  { week: 'W2', count: 18 },
-  { week: 'W3', count: 9 },
-  { week: 'W4', count: 22 },
-  { week: 'W5', count: 15 },
-  { week: 'W6', count: 27 },
-  { week: 'W7', count: 19 },
-  { week: 'W8', count: 31 },
-];
-
-const MOCK_TRADES = [
-  { name: 'Steadfast Drywall', avgHours: 6, count: 12 },
-  { name: 'Olvin & Fugon Painting', avgHours: 14, count: 8 },
-  { name: 'O&V Carpentry', avgHours: 18, count: 14 },
-  { name: 'In Charge Electrical', avgHours: 24, count: 5 },
-  { name: 'Victory Plumbing', avgHours: 36, count: 7 },
-];
-
-const MOCK_ATTENTION = [
-  { id: 'a1', title: '1307 Live Oak', subtitle: '3 overdue punch items · Drywall', timestamp: '2d', accent: 'warn' as const },
-  { id: 'a2', title: '114 Whispering Pines', subtitle: 'Stalled in Paint — 6 days', timestamp: '6d', accent: 'warn' as const },
-  { id: 'a3', title: '909 Cedar Crest', subtitle: '2 overdue punch items · Trim', timestamp: '1d', accent: 'warn' as const },
-];
-
-const MOCK_UPCOMING = [
-  { id: 'u1', title: '202 Magnolia Ave', subtitle: 'Target close: 4 days', timestamp: 'Apr 22', accent: 'info' as const },
-  { id: 'u2', title: '56 Bluebonnet Ln', subtitle: 'Target close: 9 days', timestamp: 'Apr 27', accent: 'info' as const },
-  { id: 'u3', title: '703 Post Oak', subtitle: 'Target close: 14 days', timestamp: 'May 2', accent: 'info' as const },
-];
-
-const MOCK_ACTIVITY = [
-  { id: 'r1', title: 'Punch list sent · 1307 Live Oak', subtitle: 'Drywall · 5 items', timestamp: '12m' },
-  { id: 'r2', title: 'Stage → Paint', subtitle: '114 Whispering Pines', timestamp: '1h' },
-  { id: 'r3', title: 'Punch list sent · 909 Cedar Crest', subtitle: 'Trim · 3 items', timestamp: '3h' },
-  { id: 'r4', title: 'Home completed', subtitle: '12 Bayou Bend closed out', timestamp: '5h', accent: 'success' as const },
-  { id: 'r5', title: 'Punch list sent · 202 Magnolia', subtitle: 'Electrical · 2 items', timestamp: 'yest' },
-];
-
-function isSameMonth(a: Date, b: Date) {
-  return a.getFullYear() === b.getFullYear() && a.getMonth() === b.getMonth();
-}
-function isSameQuarter(a: Date, b: Date) {
-  return a.getFullYear() === b.getFullYear() && Math.floor(a.getMonth() / 3) === Math.floor(b.getMonth() / 3);
-}
-function daysBetween(a: Date, b: Date) {
-  return Math.round((b.getTime() - a.getTime()) / (1000 * 60 * 60 * 24));
-}
+import type { DashboardSummary } from '../types';
 
 // Icon set — simple inline SVGs
 const IconHome = () => (
@@ -153,50 +70,19 @@ const IconPulse = () => (
 
 export function Dashboard() {
   const profile = useProfile();
-  const homes = useLiveQuery(() => db.communityHomes.toArray()) ?? [];
+  const nav = useNavigate();
+  const [data, setData] = useState<DashboardSummary | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(false);
 
-  // Theme is handled globally via useTheme; no per-page override needed.
+  useEffect(() => {
+    getDashboard()
+      .then(setData)
+      .catch(() => setError(true))
+      .finally(() => setLoading(false));
+  }, []);
 
-  const metrics = useMemo(() => {
-    const now = new Date();
-    const active = homes.filter((h) => h.stage !== 'Complete');
-    const completed = homes.filter((h) => h.stage === 'Complete');
-
-    const thisMonth = completed.filter((h) =>
-      h.targetCompletionDate ? isSameMonth(new Date(h.targetCompletionDate), now) : false
-    );
-    const thisQuarter = completed.filter((h) =>
-      h.targetCompletionDate ? isSameQuarter(new Date(h.targetCompletionDate), now) : false
-    );
-    const durations = completed
-      .filter((h) => h.startDate && h.targetCompletionDate)
-      .map((h) => daysBetween(new Date(h.startDate!), new Date(h.targetCompletionDate!)))
-      .filter((d) => d > 0);
-    const avgDays = durations.length
-      ? Math.round(durations.reduce((a, b) => a + b, 0) / durations.length)
-      : null;
-
-    const hasRealData = homes.length > 0;
-    const stageData = hasRealData
-      ? STAGES.map((s) => ({ stage: s, count: homes.filter((h) => h.stage === s).length })).filter(
-          (d) => d.count > 0
-        )
-      : MOCK_STAGE_DATA;
-
-    return {
-      active: active.length,
-      thisMonth: thisMonth.length,
-      thisQuarter: thisQuarter.length,
-      avgDays,
-      stageData,
-      hasRealData,
-    };
-  }, [homes]);
-
-  const heroTotal = metrics.hasRealData ? metrics.active : 32;
-  const heroMonth = metrics.hasRealData ? metrics.thisMonth : 6;
-  const heroQuarter = metrics.hasRealData ? metrics.thisQuarter : 14;
-  const heroAvgDays = metrics.avgDays ?? 112;
+  const monthShort = new Date().toLocaleDateString('en-US', { month: 'short' });
 
   return (
     <div className="dash-root -mx-5 -mt-0 px-5 lg:-mx-8 lg:px-8 pt-8 pb-16 min-h-dvh">
@@ -205,7 +91,6 @@ export function Dashboard() {
         <div>
           <div className="flex items-center gap-2 mb-2">
             <span className="dash-chip">Live · {new Date().toLocaleDateString('en-US', { weekday: 'short' })}</span>
-            {!metrics.hasRealData && <span className="dash-chip">Preview mode</span>}
           </div>
           <h1 className="text-4xl lg:text-5xl font-extrabold tracking-tight text-[var(--dash-text)]">
             {profile.firstName ? `${profile.firstName}'s` : ''} Dashboard
@@ -220,106 +105,88 @@ export function Dashboard() {
         </div>
       </header>
 
-      {/* TOP ROW — Hero Metrics */}
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 lg:gap-5 mb-6 lg:mb-8">
-        <HeroMetric
-          label="Active Homes"
-          value={heroTotal}
-          sublabel="Under management"
-          icon={<IconHome />}
-        />
-        <HeroMetric
-          label={`Completed · ${new Date().toLocaleDateString('en-US', { month: 'short' })}`}
-          value={heroMonth}
-          sublabel="This month"
-          icon={<IconCheck />}
-          trend={{ direction: 'up', text: '+2 vs last' }}
-        />
-        <HeroMetric
-          label="Completed · Quarter"
-          value={heroQuarter}
-          sublabel="Current quarter"
-          icon={<IconCalendar />}
-          trend={{ direction: 'up', text: '+5 vs last' }}
-        />
-        <HeroMetric
-          label="Avg Build Days"
-          value={heroAvgDays}
-          sublabel="Start → complete"
-          icon={<IconZap />}
-          trend={{ direction: 'down', text: '-8 vs 6mo' }}
-        />
-      </div>
-
-      {/* Desktop-only: middle + bottom rows */}
-      <div className="hidden lg:block">
-        {/* MIDDLE ROW */}
-        <div className="grid grid-cols-2 gap-5 mb-8">
-          <ChartCard
-            title="Homes by Stage"
-            subtitle="Where every lot stands right now"
-            icon={<IconChart />}
-          >
-            <StageBarChart data={metrics.stageData} />
-          </ChartCard>
-
-          <ChartCard
-            title="Build Velocity"
-            subtitle="Average days from start to complete · trending down is good"
-            icon={<IconActivity />}
-            badge="6 months"
-          >
-            <VelocityLineChart data={MOCK_VELOCITY} />
-          </ChartCard>
-
-          <ChartCard
-            title="Punch Items / Week"
-            subtitle="How active is your list engine"
-            icon={<IconPulse />}
-            badge="Last 8 weeks"
-          >
-            <PunchActivityChart data={MOCK_PUNCH_ACTIVITY} />
-          </ChartCard>
-
-          <ChartCard
-            title="Trade Response Time"
-            subtitle="Fastest to close out items · shorter bar = faster"
-            icon={<IconClock />}
-          >
-            <TradeResponseList data={MOCK_TRADES} />
-          </ChartCard>
+      {loading ? (
+        <div className="text-center py-24 text-sm text-[var(--dash-text-3)]">Loading your dashboard…</div>
+      ) : error || !data ? (
+        <div className="dash-card text-center py-16">
+          <div className="text-base font-bold text-[var(--dash-text)] mb-1.5">Couldn't load the dashboard</div>
+          <div className="text-xs text-[var(--dash-text-2)]">Check your connection and try again.</div>
         </div>
-
-        {/* BOTTOM ROW */}
-        <div className="grid grid-cols-3 gap-5">
-          <ActionFeed
-            title="Needs Attention"
-            icon={<IconAlert />}
-            items={MOCK_ATTENTION}
-            emptyLabel="Nothing overdue — nice work"
-          />
-          <ActionFeed
-            title="Upcoming Closes"
-            icon={<IconFlag />}
-            items={MOCK_UPCOMING}
-            emptyLabel="No closes scheduled"
-          />
-          <ActionFeed
-            title="Recent Activity"
-            icon={<IconPulse />}
-            items={MOCK_ACTIVITY}
-            emptyLabel="No recent activity"
-          />
+      ) : !data.hasProjects ? (
+        <div className="dash-card text-center py-16">
+          <div className="text-lg font-extrabold text-[var(--dash-text)] mb-1.5">No homes yet</div>
+          <div className="text-sm text-[var(--dash-text-2)] mb-5">
+            Your dashboard fills in as you add homes and punch lists. Add your first home to get started.
+          </div>
+          <button onClick={() => nav('/new')} className="app-btn-primary mx-auto">Add a home</button>
         </div>
-      </div>
+      ) : (
+        <>
+          {/* TOP ROW — Hero Metrics */}
+          <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 lg:gap-5 mb-6 lg:mb-8">
+            <HeroMetric label="Active Homes" value={data.heroes.activeHomes} sublabel="Under management" icon={<IconHome />} />
+            <HeroMetric label={`Completed · ${monthShort}`} value={data.heroes.completedThisMonth} sublabel="This month" icon={<IconCheck />} />
+            <HeroMetric label="Completed · Quarter" value={data.heroes.completedThisQuarter} sublabel="Current quarter" icon={<IconCalendar />} />
+            <HeroMetric label="Avg Build Days" value={data.heroes.avgBuildDays ?? '—'} sublabel="Start → complete" icon={<IconZap />} />
+          </div>
 
-      {/* Mobile-only notice */}
-      <div className="lg:hidden mt-6 dash-card text-center">
-        <div className="text-base font-bold text-[var(--dash-text)] mb-1.5">Full dashboard on desktop</div>
-        <div className="text-xs text-[var(--dash-text-2)]">
-          Charts and activity feeds open up at 1024px+. Open this on your laptop to see the full view.
-        </div>
-      </div>
+          {/* Desktop-only: middle + bottom rows */}
+          <div className="hidden lg:block">
+            {/* MIDDLE ROW */}
+            <div className="grid grid-cols-2 gap-5 mb-8">
+              <ChartCard title="Homes by Stage" subtitle="Where every home stands right now" icon={<IconChart />}>
+                {data.stageData.length ? (
+                  <StageBarChart data={data.stageData} />
+                ) : (
+                  <EmptyChart label="Set a build stage on your homes to see this" />
+                )}
+              </ChartCard>
+
+              <ChartCard title="Build Velocity" subtitle="Average days from start to complete · trending down is good" icon={<IconActivity />} badge="6 months">
+                {data.velocity.length ? (
+                  <VelocityLineChart data={data.velocity} />
+                ) : (
+                  <EmptyChart label="Completes with start + finish dates will chart here" />
+                )}
+              </ChartCard>
+
+              <ChartCard title="Punch Items / Week" subtitle="How active is your list engine" icon={<IconPulse />} badge="Last 8 weeks">
+                <PunchActivityChart data={data.punchActivity} />
+              </ChartCard>
+
+              <ChartCard title="Busiest Trades" subtitle="Open items by trade across all homes · longer bar = more work" icon={<IconClock />}>
+                <TradeResponseList data={data.tradeLoad} />
+              </ChartCard>
+            </div>
+
+            {/* BOTTOM ROW */}
+            <div className="grid grid-cols-3 gap-5">
+              <ActionFeed title="Needs Attention" icon={<IconAlert />} items={data.needsAttention} emptyLabel="Nothing overdue — nice work" />
+              <ActionFeed title="Upcoming Closes" icon={<IconFlag />} items={data.upcoming} emptyLabel="No closes scheduled" />
+              <ActionFeed title="Recent Activity" icon={<IconPulse />} items={data.recentActivity} emptyLabel="No recent activity" />
+            </div>
+          </div>
+
+          {/* Mobile-only: Needs Attention + notice */}
+          <div className="lg:hidden mt-6 space-y-4">
+            <ActionFeed title="Needs Attention" icon={<IconAlert />} items={data.needsAttention} emptyLabel="Nothing overdue — nice work" />
+            <div className="dash-card text-center">
+              <div className="text-base font-bold text-[var(--dash-text)] mb-1.5">Full dashboard on desktop</div>
+              <div className="text-xs text-[var(--dash-text-2)]">
+                Charts and activity feeds open up at 1024px+. Open this on your laptop for the full view.
+              </div>
+            </div>
+          </div>
+        </>
+      )}
+    </div>
+  );
+}
+
+function EmptyChart({ label }: { label: string }) {
+  return (
+    <div className="h-[260px] flex items-center justify-center text-center px-6">
+      <p className="text-sm text-[var(--dash-text-3)]">{label}</p>
     </div>
   );
 }
@@ -348,14 +215,10 @@ function ChartCard({
           )}
           <div className="min-w-0">
             <h3 className="text-xl font-extrabold text-[var(--dash-text)] tracking-tight truncate">{title}</h3>
-            {subtitle && (
-              <p className="text-xs text-[var(--dash-text-2)] mt-1 leading-relaxed">{subtitle}</p>
-            )}
+            {subtitle && <p className="text-xs text-[var(--dash-text-2)] mt-1 leading-relaxed">{subtitle}</p>}
           </div>
         </div>
-        {badge && (
-          <span className="dash-chip shrink-0">{badge}</span>
-        )}
+        {badge && <span className="dash-chip shrink-0">{badge}</span>}
       </div>
       {children}
     </div>

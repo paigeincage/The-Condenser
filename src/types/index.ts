@@ -6,12 +6,45 @@ export interface Project {
   lot: string;
   status: string;
   date: string;
+  stage: string;
+  startDate: string | null;
+  targetDate: string | null;
+  completedAt: string | null;
   createdAt: string;
   updatedAt: string;
   items?: PunchItem[];
   files?: SourceFile[];
   _count?: { items: number; files: number };
   statusCounts?: { pending: number; wip: number; done: number };
+}
+
+export const BUILD_STAGES = [
+  'Pre-construction', 'Framing', 'Drywall', 'Paint', 'Trim', 'Tile', 'Punch', 'Complete',
+] as const;
+
+export interface DashboardFeedItem {
+  id: string;
+  title: string;
+  subtitle?: string;
+  timestamp?: string;
+  accent?: 'warn' | 'info' | 'success';
+}
+
+export interface DashboardSummary {
+  heroes: {
+    activeHomes: number;
+    completedThisMonth: number;
+    completedThisQuarter: number;
+    avgBuildDays: number | null;
+  };
+  stageData: { stage: string; count: number }[];
+  velocity: { month: string; avgDays: number }[];
+  punchActivity: { week: string; count: number }[];
+  tradeLoad: { name: string; value: number; count: number }[];
+  needsAttention: DashboardFeedItem[];
+  upcoming: DashboardFeedItem[];
+  recentActivity: DashboardFeedItem[];
+  hasProjects: boolean;
 }
 
 export interface PunchItem {

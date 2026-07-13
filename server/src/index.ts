@@ -9,6 +9,7 @@ import { authRouter } from './routes/auth.js';
 import { waitlistRouter } from './routes/waitlist.js';
 import { filesRouter } from './routes/files.js';
 import { projectsRouter } from './routes/projects.js';
+import { dashboardRouter } from './routes/dashboard.js';
 import { itemsRouter } from './routes/items.js';
 import { contactsRouter } from './routes/contacts.js';
 import { extractRouter } from './routes/extract.js';
@@ -31,6 +32,7 @@ app.use('/api/waitlist', waitlistRouter);
 // Protected routes — require valid JWT
 app.use('/api/files', requireAuth, filesRouter);
 app.use('/api/projects', requireAuth, projectsRouter);
+app.use('/api/dashboard', requireAuth, dashboardRouter);
 app.use('/api/items', requireAuth, itemsRouter);
 app.use('/api/contacts', requireAuth, contactsRouter);
 app.use('/api/extract', requireAuth, extractRouter);

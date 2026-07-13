@@ -1,6 +1,6 @@
 interface Trade {
   name: string;
-  avgHours: number;
+  value: number;
   count: number;
 }
 
@@ -9,11 +9,14 @@ interface Props {
 }
 
 export function TradeResponseList({ data }: Props) {
-  const max = Math.max(...data.map((t) => t.avgHours), 1);
+  if (data.length === 0) {
+    return <div className="text-sm text-[var(--dash-text-3)] text-center py-8">No open items — all caught up</div>;
+  }
+  const max = Math.max(...data.map((t) => t.value), 1);
   return (
     <ul className="space-y-3">
       {data.map((t, i) => {
-        const widthPct = Math.max(8, (t.avgHours / max) * 100);
+        const widthPct = Math.max(8, (t.value / max) * 100);
         return (
           <li
             key={t.name}
@@ -26,7 +29,7 @@ export function TradeResponseList({ data }: Props) {
               <div className="flex items-center justify-between mb-1.5 gap-2">
                 <div className="text-sm font-bold text-[var(--dash-text)] truncate">{t.name}</div>
                 <div className="text-xs text-[var(--dash-text-2)] tabular-nums shrink-0 font-semibold">
-                  {t.avgHours}h · {t.count}
+                  {t.value} open · {t.count} home{t.count === 1 ? '' : 's'}
                 </div>
               </div>
               <div className="w-full h-2 bg-[var(--dash-card-2)] rounded-full overflow-hidden">
