@@ -81,6 +81,17 @@ export function Contacts() {
     }
   };
 
+  const setChannel = async (c: Contact, pref: Preference) => {
+    if (c.preferredChannel === pref) return;
+    setContacts((prev) => prev.map((x) => (x.id === c.id ? { ...x, preferredChannel: pref } : x)));
+    try {
+      await updateContact(c.id, { preferredChannel: pref });
+    } catch {
+      addToast('Failed to update', 'error');
+      load();
+    }
+  };
+
   return (
     <div className="pb-8">
       <TopBar
@@ -231,17 +242,22 @@ export function Contacts() {
               <div className="flex-1 min-w-0">
                 <div className="flex items-center justify-between gap-2">
                   <p className="font-bold text-[var(--text)] truncate text-sm">{c.name}</p>
-                  <span
-                    className={`text-[9px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-full border shrink-0 ${
-                      c.preferredChannel === 'both'
-                        ? 'bg-[var(--accent-tint)] text-[var(--accent)] border-[var(--accent-tint-2)]'
-                        : c.preferredChannel === 'text'
-                          ? 'bg-[var(--amber)]/10 text-[var(--amber)] border-[var(--amber)]/30'
-                          : 'bg-[var(--card-2)] text-[var(--text-2)] border-[var(--border)]'
-                    }`}
-                  >
-                    {c.preferredChannel}
-                  </span>
+                  <div className="flex gap-0.5 shrink-0 bg-[var(--card-2)] rounded-full p-0.5 border border-[var(--border)]">
+                    {(['text', 'email', 'both'] as const).map((p) => (
+                      <button
+                        key={p}
+                        onClick={() => setChannel(c, p)}
+                        aria-label={`Send preference: ${p}`}
+                        className={`px-2 py-0.5 rounded-full text-[9px] font-bold uppercase tracking-wider transition-colors ${
+                          c.preferredChannel === p
+                            ? 'bg-[var(--accent)] text-white'
+                            : 'text-[var(--text-3)] hover:text-[var(--text)]'
+                        }`}
+                      >
+                        {p}
+                      </button>
+                    ))}
+                  </div>
                 </div>
                 <p className="text-xs text-[var(--text-3)] truncate">
                   {c.company}

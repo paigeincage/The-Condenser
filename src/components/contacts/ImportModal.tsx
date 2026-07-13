@@ -1,5 +1,5 @@
 import { useState, useRef } from 'react';
-import { Upload, X, Loader2 } from 'lucide-react';
+import { Upload, X, Loader2, Smartphone } from 'lucide-react';
 import { apiUpload, api } from '../../api/client';
 import { useUI } from '../../stores/ui';
 
@@ -38,6 +38,38 @@ export function ImportModal({ onClose, onImported }: ImportModalProps) {
       addToast(`Import failed: ${err}`, 'error');
     } finally {
       setUploading(false);
+    }
+  };
+
+  // Contact Picker API — lets users tap contacts from their phone (Android Chrome).
+  const canPickPhone =
+    typeof navigator !== 'undefined' &&
+    'contacts' in navigator &&
+    typeof (navigator as { contacts?: { select?: unknown } }).contacts?.select === 'function';
+
+  const pickFromPhone = async () => {
+    try {
+      const nav = navigator as unknown as {
+        contacts: { select: (props: string[], opts: { multiple: boolean }) => Promise<Array<{ name?: string[]; email?: string[]; tel?: string[] }>> };
+      };
+      const selected = await nav.contacts.select(['name', 'email', 'tel'], { multiple: true });
+      const mapped: ParsedContact[] = selected
+        .map((c) => ({
+          name: c.name?.[0] || '',
+          email: c.email?.[0] || '',
+          phone: c.tel?.[0] || '',
+          company: '',
+          trade: '',
+        }))
+        .filter((c) => c.name);
+      if (mapped.length === 0) {
+        addToast('No contacts selected', 'info');
+        return;
+      }
+      setParsed(mapped);
+      addToast(`Selected ${mapped.length} contact${mapped.length === 1 ? '' : 's'}`, 'success');
+    } catch {
+      addToast('Contact picker was cancelled or unavailable', 'info');
     }
   };
 
@@ -116,20 +148,30 @@ export function ImportModal({ onClose, onImported }: ImportModalProps) {
                     <p className="font-display text-base font-bold uppercase tracking-tight text-[var(--text)] mb-1">
                       Tap to select file
                     </p>
-                    <p className="text-xs text-[var(--text-3)]">Supports .vcf, .csv, .xlsx, .xls</p>
+                    <p className="text-xs text-[var(--text-3)]">PDF · Excel · CSV · phone contacts (.vcf)</p>
                   </>
                 )}
               </div>
               <input
                 ref={fileRef}
                 type="file"
-                accept=".vcf,.csv,.xlsx,.xls"
+                accept=".pdf,.vcf,.csv,.tsv,.txt,.xlsx,.xlsm,.xls,.ods,.numbers"
                 className="hidden"
                 onChange={(e) => {
                   const f = e.target.files?.[0];
                   if (f) handleFile(f);
                 }}
               />
+
+              {canPickPhone && (
+                <button
+                  onClick={pickFromPhone}
+                  className="w-full flex items-center justify-center gap-2 py-3 rounded-xl border-2 border-[var(--accent)] text-[var(--accent)] font-bold text-sm hover:bg-[var(--accent-tint)] transition-colors"
+                >
+                  <Smartphone size={16} strokeWidth={2.5} />
+                  Pick from my phone
+                </button>
+              )}
 
               <div className="app-card !p-4 space-y-2">
                 <p className="text-[10px] font-bold uppercase tracking-[0.15em] text-[var(--text-3)]">

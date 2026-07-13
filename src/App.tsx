@@ -52,6 +52,14 @@ function AppShellWide() {
   );
 }
 
+function AppShellHome() {
+  return (
+    <div className="app-shell-home">
+      <Outlet />
+    </div>
+  );
+}
+
 export default function App() {
   useAccessibility();
   useTheme();
@@ -80,8 +88,10 @@ export default function App() {
           <Route path="/login" element={<Login />} />
           <Route path="/signup" element={<Signup />} />
           <Route element={<RequireAuth />}>
+            <Route element={<AppShellHome />}>
+              <Route path="/" element={<Home />} />
+            </Route>
             <Route element={<AppShell />}>
-            <Route path="/" element={<Home />} />
             <Route path="/new" element={<NewProject />} />
             <Route path="/project/:id" element={<Project />} />
             <Route path="/project/:id/intake" element={<Intake />} />

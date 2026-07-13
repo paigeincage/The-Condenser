@@ -1,6 +1,8 @@
 import { Router } from 'express';
 import { prisma } from '../lib/prisma.js';
 import { upload } from '../middleware/upload.js';
+import { extractPdfText } from '../services/pdf-text.js';
+import { anthropic } from '../lib/anthropic.js';
 import fs from 'fs';
 import * as XLSX from 'xlsx';
 
@@ -89,6 +91,47 @@ function parseSpreadsheet(filePath: string): RawContact[] {
   }).filter((c) => c.name);
 }
 
+/** Extract contacts from a PDF's text using Claude Haiku. */
+async function parsePdfContacts(filePath: string): Promise<RawContact[]> {
+  const { text } = await extractPdfText(filePath);
+  if (!text.trim()) return [];
+
+  const prompt = `Extract every distinct person or company contact from the text below.
+Return ONLY a JSON array: [{"name":"","email":"","phone":"","company":"","trade":""}]
+Rules:
+- "name" is required — skip any entry with no name.
+- "phone": keep digits only (a leading + is ok). "email": lowercase.
+- "trade": their construction trade/specialty if stated (e.g. Drywall, Plumbing), else "".
+- Never invent data. Leave a field as "" when it isn't present.
+
+TEXT:
+${text.slice(0, 12000)}`;
+
+  const response = await anthropic.messages.create({
+    model: 'claude-haiku-4-5-20251001',
+    max_tokens: 4096,
+    messages: [{ role: 'user', content: prompt }],
+  });
+  const block = response.content.find((b) => b.type === 'text');
+  const raw = (block && 'text' in block ? block.text : '[]').trim().replace(/^```json?\n?/, '').replace(/\n?```$/, '');
+  let arr: unknown;
+  try {
+    arr = JSON.parse(raw);
+  } catch {
+    return [];
+  }
+  if (!Array.isArray(arr)) return [];
+  return arr
+    .map((c: Record<string, unknown>) => ({
+      name: String(c.name || '').trim(),
+      email: String(c.email || '').trim(),
+      phone: normalizePhone(String(c.phone || '')),
+      company: String(c.company || '').trim(),
+      trade: String(c.trade || '').trim(),
+    }))
+    .filter((c) => c.name);
+}
+
 contactImportRouter.post('/', upload.single('file'), async (req, res) => {
   const file = req.file;
   if (!file) {
@@ -103,10 +146,12 @@ contactImportRouter.post('/', upload.single('file'), async (req, res) => {
     if (ext.endsWith('.vcf')) {
       const content = fs.readFileSync(file.path, 'utf-8');
       parsed = parseVcf(content);
-    } else if (ext.endsWith('.csv') || ext.endsWith('.xlsx') || ext.endsWith('.xls')) {
+    } else if (/\.(csv|tsv|txt|xlsx|xlsm|xls|ods|numbers)$/.test(ext)) {
       parsed = parseSpreadsheet(file.path);
+    } else if (ext.endsWith('.pdf')) {
+      parsed = await parsePdfContacts(file.path);
     } else {
-      res.status(400).json({ error: 'Unsupported file type. Use .vcf, .csv, .xlsx, or .xls' });
+      res.status(400).json({ error: 'Unsupported file type. Use PDF, Excel (.xlsx/.xls), CSV, or a phone contacts file (.vcf).' });
       return;
     }
 

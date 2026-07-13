@@ -2,7 +2,7 @@ import { Moon, Sun } from 'lucide-react';
 import { TopBar } from '../../components/layout/TopBar';
 import { useProfile, saveProfile } from '../../hooks/useProfile';
 import { useTheme } from '../../hooks/useTheme';
-import { Toggle, Section } from '../../components/settings/SettingsField';
+import { Section } from '../../components/settings/SettingsField';
 
 const SCALE_OPTIONS = [
   { value: 0.9, label: 'Small' },
@@ -68,24 +68,6 @@ export function AccessibilitySettings() {
             );
           })}
         </div>
-      </Section>
-
-      <Section title="Font" description="OpenDyslexic is designed to reduce common reading errors.">
-        <Toggle
-          label="Use OpenDyslexic font"
-          hint="A font shaped to help readers with dyslexia"
-          checked={profile.fontChoice === 'dyslexic'}
-          onChange={(v) => saveProfile({ fontChoice: v ? 'dyslexic' : 'default' })}
-        />
-      </Section>
-
-      <Section title="Contrast">
-        <Toggle
-          label="High contrast mode"
-          hint="Darkens secondary text and borders for easier reading"
-          checked={profile.highContrast}
-          onChange={(v) => saveProfile({ highContrast: v })}
-        />
       </Section>
     </div>
   );

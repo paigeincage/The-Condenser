@@ -1,7 +1,6 @@
 import { useRef } from 'react';
 import { TopBar } from '../../components/layout/TopBar';
 import { useProfile, saveProfile } from '../../hooks/useProfile';
-import { useCurrentMonthUsage } from '../../hooks/useAiUsage';
 import { TextField, Toggle, SelectField, Section } from '../../components/settings/SettingsField';
 import type { GreetingWord } from '../../db';
 
@@ -9,7 +8,6 @@ const GREETINGS: GreetingWord[] = ['Howdy', 'Hey', 'Welcome', "Mornin'", 'Hola']
 
 export function ProfileSettings() {
   const profile = useProfile();
-  const usage = useCurrentMonthUsage();
   const fileRef = useRef<HTMLInputElement>(null);
 
   const handlePhoto = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -25,9 +23,6 @@ export function ProfileSettings() {
     };
     reader.readAsDataURL(file);
   };
-
-  const costDollars = (usage.estimatedCostCents / 100).toFixed(2);
-  const monthLabel = new Date(usage.month + '-02').toLocaleDateString('en-US', { month: 'long', year: 'numeric' });
 
   return (
     <div>
@@ -107,32 +102,13 @@ export function ProfileSettings() {
           onChange={(v) => saveProfile({ greetingWord: v as GreetingWord })}
           options={GREETINGS.map((g) => ({ value: g, label: g }))}
         />
-        <div className="bg-[var(--card-2)] rounded-lg p-4 border-[1.5px] border-g200">
-          <div className="text-xs font-semibold text-g500 uppercase tracking-wider mb-2">Preview</div>
-          <div className="text-2xl font-extrabold text-cblack">
+        <div className="flex items-center gap-2 bg-[var(--card-2)] rounded-lg px-3 py-2 border border-[var(--border)]">
+          <span className="text-[10px] font-bold uppercase tracking-wider text-[var(--text-3)] shrink-0">Preview</span>
+          <span className="text-sm font-bold text-[var(--text)] truncate">
             {profile.greetingEnabled
               ? `${profile.greetingWord}, ${profile.firstName || 'there'}`
               : `Welcome back${profile.firstName ? `, ${profile.firstName}` : ''}`}
-          </div>
-        </div>
-      </Section>
-
-      <Section title={`AI Usage — ${monthLabel}`} description="Monthly cost for voice transcription and vision OCR.">
-        <div className="grid grid-cols-3 gap-3">
-          <div className="bg-[var(--card-2)] rounded-lg p-3 border-[1.5px] border-g200">
-            <div className="text-[10px] uppercase tracking-wider text-g400 font-semibold">Voice</div>
-            <div className="text-xl font-bold text-cblack mt-1 tabular-nums">
-              {Math.round(usage.voiceSeconds / 60)}m
-            </div>
-          </div>
-          <div className="bg-[var(--card-2)] rounded-lg p-3 border-[1.5px] border-g200">
-            <div className="text-[10px] uppercase tracking-wider text-g400 font-semibold">Vision</div>
-            <div className="text-xl font-bold text-cblack mt-1 tabular-nums">{usage.visionCalls}</div>
-          </div>
-          <div className="bg-[var(--card-2)] rounded-lg p-3 border-[1.5px] border-g200">
-            <div className="text-[10px] uppercase tracking-wider text-g400 font-semibold">Est. Cost</div>
-            <div className="text-xl font-bold text-mar mt-1 tabular-nums">${costDollars}</div>
-          </div>
+          </span>
         </div>
       </Section>
     </div>

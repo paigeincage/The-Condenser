@@ -195,6 +195,19 @@ body > * {
   }
 }
 
+.app-shell-home {
+  max-width: 680px;
+  margin: 0 auto;
+  padding: 0 20px;
+  min-height: 100dvh;
+}
+@media (min-width: 1024px) {
+  .app-shell-home {
+    max-width: 1120px;
+    padding: 0 40px;
+  }
+}
+
 .app-shell-wide {
   max-width: 1400px;
   margin: 0 auto;
