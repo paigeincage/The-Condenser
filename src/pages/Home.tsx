@@ -100,7 +100,7 @@ export function Home() {
       {/* FILES */}
       <SectionLabel>Files</SectionLabel>
       <div
-        className="grid grid-cols-2 gap-2.5 animate-fade-up"
+        className="grid grid-cols-2 lg:grid-cols-4 gap-2.5 lg:gap-3 animate-fade-up"
         style={{ animationDelay: '0.2s' }}
       >
         <FolderTile

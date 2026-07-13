@@ -209,9 +209,9 @@ export function Contacts() {
         </div>
       )}
 
-      <div className="space-y-2">
+      <div className="space-y-2 lg:space-y-0 lg:grid lg:grid-cols-2 lg:gap-2.5">
         {contacts.length === 0 ? (
-          <div className="app-card text-center py-8">
+          <div className="app-card text-center py-8 lg:col-span-2">
             <p className="text-sm font-semibold text-[var(--text-2)]">No contacts yet</p>
             <p className="text-xs text-[var(--text-3)] mt-1">Add one above or import a CSV.</p>
           </div>

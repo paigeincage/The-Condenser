@@ -105,7 +105,7 @@ export function Settings() {
       </button>
 
       {/* Grouped settings */}
-      <div className="space-y-6">
+      <div className="space-y-6 lg:space-y-0 lg:grid lg:grid-cols-2 lg:gap-5 lg:items-start">
         {GROUPS.map((group, gi) => (
           <section key={group.label} className="animate-fade-up" style={{ animationDelay: `${(gi + 1) * 0.06}s` }}>
             <h2 className="text-[10px] font-bold uppercase tracking-[0.15em] text-[var(--text-3)] mb-2 px-1">

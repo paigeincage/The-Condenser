@@ -188,6 +188,12 @@ body > * {
   padding: 0 20px;
   min-height: 100dvh;
 }
+@media (min-width: 1024px) {
+  .app-shell {
+    max-width: 880px;
+    padding: 0 32px;
+  }
+}
 
 .app-shell-wide {
   max-width: 1400px;

@@ -12,7 +12,7 @@ export function BottomNav() {
   if (pathname === '/login' || pathname === '/signup') return null;
   return (
     <nav className="fixed bottom-0 left-0 right-0 z-40 border-t-2" style={{ background: 'var(--card)', borderColor: 'var(--border)' }}>
-      <div className="max-w-[680px] mx-auto flex justify-around">
+      <div className="max-w-[680px] lg:max-w-[880px] mx-auto flex justify-around">
         {tabs.map(({ to, label, Icon }) => (
           <NavLink
             key={to}
