@@ -8,3 +8,10 @@ uploads
 *.db-journal
 server/prisma/*.db
 server/prisma/*.db-journal
+
+# Playwright
+/test-results/
+/playwright-report/
+/blob-report/
+/playwright/.cache/
+/playwright/.auth/
